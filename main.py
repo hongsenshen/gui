@@ -153,16 +153,25 @@ class QueryClientApp:
         # ======================
         # 右侧对比区域
         # ======================
-        right_frame = ttk.Frame(self.content_frame)
-        right_frame.pack(side=RIGHT, expand=True, fill=BOTH, padx=5, pady=5)
+        compare_container = ttk.Frame(self.content_frame)
+        compare_container.pack(side=RIGHT, expand=True, fill=BOTH, padx=5, pady=5)
 
-        # 对比区域标题
-        ttk.Label(right_frame, text="对比列表（点击结果项添加）",
-                  font=("微软雅黑", 12, "bold")).pack(fill=X)
+        # 固定列容器（制造商、核心数）
+        fixed_frame = ttk.Frame(compare_container, width=150)
+        fixed_frame.pack(side=LEFT, fill=Y)
 
-        # 对比画布和滚动条
-        self.compare_canvas = tk.Canvas(right_frame, highlightthickness=0)
-        scroll_x = ttk.Scrollbar(right_frame, orient=HORIZONTAL, command=self.compare_canvas.xview)
+        # 固定列标题
+        ttk.Label(fixed_frame, text="型号", style="primary.TLabel").pack(pady=5)
+        ttk.Label(fixed_frame, text="制造商", style="primary.TLabel").pack(pady=5)
+        ttk.Label(fixed_frame, text="核心数", style="primary.TLabel").pack(pady=5)
+
+        # 滚动区域容器
+        scroll_frame = ttk.Frame(compare_container)
+        scroll_frame.pack(side=LEFT, expand=True, fill=BOTH)
+
+        # 创建画布和滚动条
+        self.compare_canvas = tk.Canvas(scroll_frame, highlightthickness=0)
+        scroll_x = ttk.Scrollbar(scroll_frame, orient=HORIZONTAL, command=self.compare_canvas.xview)
         self.compare_canvas.configure(xscrollcommand=scroll_x.set)
 
         # 内部框架
@@ -173,30 +182,44 @@ class QueryClientApp:
         scroll_x.pack(side=BOTTOM, fill=X)
         self.compare_canvas.pack(side=TOP, expand=True, fill=BOTH)
 
-        # 结果列表容器（带垂直滚动）
-        result_canvas = tk.Canvas(result_container, highlightthickness=0)
-        result_scroll = ttk.Scrollbar(result_container, command=result_canvas.yview)
-        result_canvas.configure(yscrollcommand=result_scroll.set)
+        # 存储固定列和滚动区域的组件
+        # 固定列容器（型号、制造商、核心数）
+        fixed_frame = ttk.Frame(compare_container, width=150)
+        fixed_frame.pack(side=LEFT, fill=Y)
+
+        # 固定列标题（使用table_headers的前三个字段）
+        self.fixed_headers = table_headers # 获取前三个字段作为固定列
+        for header in self.fixed_headers:
+            ttk.Label(fixed_frame,
+                      text=header,
+                      style="primary.TLabel",
+                      anchor="center",
+                      padding=5).pack(fill=X, pady=5)
+
+        # # 结果列表容器（带垂直滚动）
+        # result_canvas = tk.Canvas(result_container, highlightthickness=0)
+        # result_scroll = ttk.Scrollbar(result_container, command=result_canvas.yview)
+        # result_canvas.configure(yscrollcommand=result_scroll.set)
 
         # 结果内部框架
-        self.result_inner_frame = ttk.Frame(result_canvas)
-        result_canvas.create_window((0, 0), window=self.result_inner_frame, anchor="nw")
+        # self.result_inner_frame = ttk.Frame(result_canvas)
+        # result_canvas.create_window((0, 0), window=self.result_inner_frame, anchor="nw")
 
         # 布局
-        result_scroll.pack(side=RIGHT, fill=Y)
-        result_canvas.pack(side=LEFT, expand=True, fill=BOTH)
+        # result_scroll.pack(side=RIGHT, fill=Y)
+        # result_canvas.pack(side=LEFT, expand=True, fill=BOTH)
 
         # 绑定配置事件
-        self.result_inner_frame.bind("<Configure>",
-                                     lambda e: result_canvas.configure(scrollregion=result_canvas.bbox("all")))
-        self.compare_inner_frame.bind("<Configure>",
-                                      lambda e: self.compare_canvas.configure(
-                                          scrollregion=self.compare_canvas.bbox("all")))
+        # self.result_inner_frame.bind("<Configure>",
+        #                              lambda e: result_canvas.configure(scrollregion=result_canvas.bbox("all")))
+        # self.compare_inner_frame.bind("<Configure>",
+        #                               lambda e: self.compare_canvas.configure(
+        #                                   scrollregion=self.compare_canvas.bbox("all")))
 
     def perform_search(self):
-        """执行查询并显示结果"""
-        # 清空现有结果
-        for widget in self.result_inner_frame.winfo_children():
+        """执行查询并自动添加所有结果到对比"""
+        # 清空现有对比项
+        for widget in self.compare_inner_frame.winfo_children():
             widget.destroy()
 
         # 生成示例数据
@@ -206,44 +229,78 @@ class QueryClientApp:
             {"型号": "Xeon W-3375", "制造商": "Intel", "核心数": "38", "频率": "4.0GHz"}
         ]
 
-        # 创建结果项
+        # 自动添加所有结果到对比
         for data in sample_data:
-            item_frame = ttk.Frame(self.result_inner_frame, padding=5, style="light.TFrame")
-            item_frame.pack(fill=X, pady=2)
-
-            # 显示信息
-            ttk.Label(item_frame, text=data["型号"], width=15).pack(side=LEFT)
-            ttk.Label(item_frame, text=data["制造商"], width=10).pack(side=LEFT)
-            ttk.Label(item_frame, text=f"{data['核心数']}核").pack(side=LEFT)
-
-            # 添加按钮
-            ttk.Button(item_frame, text="+ 对比",
-                       style="success.Outline.TButton",
-                       command=lambda d=data: self.add_to_compare(d)).pack(side=RIGHT)
-
-    def add_to_compare(self, item_data):
-        """添加项目到对比列表"""
-        # 创建对比卡片
-        card = ttk.Frame(self.compare_inner_frame, padding=10,)
-        card.pack(side=LEFT, fill=Y, padx=5, pady=5)
-
-        # 卡片内容
-        ttk.Label(card, text=item_data["型号"],
-                  font=("微软雅黑", 10, "bold")).pack(pady=5)
-        ttk.Separator(card).pack(fill=X)
-        ttk.Label(card, text=f"制造商: {item_data['制造商']}").pack(anchor="w")
-        ttk.Label(card, text=f"核心数: {item_data['核心数']}").pack(anchor="w")
-        ttk.Label(card, text=f"频率: {item_data['频率']}").pack(anchor="w")
-
-        # 移除按钮
-        ttk.Button(card, text="× 移除",
-                   style="danger.TButton",
-                   command=lambda: card.destroy()).pack(pady=5)
+            self.add_to_compare(data)
 
         # 更新滚动区域
         self.compare_inner_frame.update_idletasks()
         self.compare_canvas.configure(scrollregion=self.compare_canvas.bbox("all"))
 
+    # def add_to_compare(self, item_data):
+    #     """添加项目到对比列表（优化样式）"""
+    #     # 创建对比卡片
+    #     card = ttk.Frame(self.compare_inner_frame,
+    #                      padding=15,
+    #                      width=180)  # 固定卡片宽度
+    #     card.pack(side=LEFT, fill=Y, padx=5, pady=5, ipady=10)
+    #
+    #     # 卡片内容
+    #     ttk.Label(card, text=item_data["型号"],
+    #               font=("微软雅黑", 10, "bold"),
+    #               wraplength=150).pack(pady=5)
+    #     ttk.Separator(card).pack(fill=X, pady=5)
+    #
+    #     # 动态生成参数项
+    #     for key in ["制造商", "核心数", "频率"]:
+    #         row = ttk.Frame(card)
+    #         row.pack(fill=X, pady=2)
+    #         ttk.Label(row, text=f"{key}:", width=8, style="secondary.TLabel").pack(side=LEFT)
+    #         ttk.Label(row, text=item_data[key]).pack(side=LEFT)
+    #
+    #     # 移除按钮
+    #     ttk.Button(card, text="移除",
+    #                style="danger.TButton",
+    #                command=lambda c=card: c.destroy()).pack(pady=8)
+    def add_to_compare(self, item_data):
+        """添加项目到对比列表（优化对齐版）"""
+        # 创建对比卡片
+        card = ttk.Frame(self.compare_inner_frame,
+                         padding=(15, 5),
+                         width=180,
+                         style="info.TFrame")
+        card.pack(side=LEFT, fill=Y, padx=5, pady=5)
+
+        # 显示固定字段的值（与左侧标签对齐）
+        for header in self.fixed_headers:
+            value = item_data.get(header, "N/A")
+            lbl = ttk.Label(card,
+                            text=value,
+                            font=("微软雅黑", 9),
+                            anchor="center",
+                            width=15)
+            lbl.pack(fill=X, pady=4)
+
+        # 显示其他参数（带滚动条的部分）
+        ttk.Separator(card).pack(fill=X, pady=5)
+        other_params = [k for k in item_data if k not in self.fixed_headers]
+
+        for param in other_params:
+            row = ttk.Frame(card)
+            row.pack(fill=X, pady=2)
+            ttk.Label(row,
+                      text=f"{param}:",
+                      width=8,
+                      style="secondary.TLabel").pack(side=LEFT)
+            ttk.Label(row,
+                      text=item_data[param],
+                      width=6).pack(side=RIGHT)
+
+        # 移除按钮
+        ttk.Button(card,
+                   text="移除",
+                   style="danger.Outline.TButton",
+                   command=lambda c=card: c.destroy()).pack(pady=8)
 
     def show_cpu_name_query(self):
         """显示CPU名称查询页面"""
