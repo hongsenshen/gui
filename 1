@@ -1,0 +1,123 @@
+def create_query_page(self, fields, table_headers):
+    """创建带对比功能的查询页面"""
+    for widget in self.content_frame.winfo_children():
+        widget.destroy()
+
+    # ======================
+    # 左侧搜索和结果区域
+    # ======================
+    left_frame = ttk.Frame(self.content_frame)
+    left_frame.pack(side=LEFT, fill=BOTH, padx=5, pady=5)
+
+    # 搜索条件框架
+    search_frame = ttk.LabelFrame(left_frame, text="搜索条件", padding=15)
+    search_frame.pack(fill=X)
+
+    # 搜索表单组件
+    self.search_vars = {}
+    for row, (field, field_type) in enumerate(fields.items()):
+        ttk.Label(search_frame, text=f"{field}：", anchor="e").grid(row=row, column=0, padx=5, pady=8, sticky="ew")
+
+        # 各类型表单项（代码同原create_query_page）
+        # [此处保留原有的表单项创建逻辑]
+
+    ttk.Button(search_frame, text="查　询",
+               command=self.perform_search,
+               style="success.TButton").grid(row=len(fields)+1, columnspan=2, pady=15)
+
+    # 查询结果容器
+    result_container = ttk.Frame(left_frame)
+    result_container.pack(fill=BOTH, expand=True)
+
+    # ======================
+    # 右侧对比区域
+    # ======================
+    right_frame = ttk.Frame(self.content_frame)
+    right_frame.pack(side=RIGHT, expand=True, fill=BOTH, padx=5, pady=5)
+
+    # 对比区域标题
+    ttk.Label(right_frame, text="对比列表（点击结果项添加）", 
+             font=("微软雅黑", 12, "bold")).pack(fill=X)
+
+    # 对比画布和滚动条
+    self.compare_canvas = tk.Canvas(right_frame, highlightthickness=0)
+    scroll_x = ttk.Scrollbar(right_frame, orient=HORIZONTAL, command=self.compare_canvas.xview)
+    self.compare_canvas.configure(xscrollcommand=scroll_x.set)
+    
+    # 内部框架
+    self.compare_inner_frame = ttk.Frame(self.compare_canvas)
+    self.compare_canvas.create_window((0,0), window=self.compare_inner_frame, anchor="nw")
+
+    # 布局
+    scroll_x.pack(side=BOTTOM, fill=X)
+    self.compare_canvas.pack(side=TOP, expand=True, fill=BOTH)
+
+    # 结果列表容器（带垂直滚动）
+    result_canvas = tk.Canvas(result_container, highlightthickness=0)
+    result_scroll = ttk.Scrollbar(result_container, command=result_canvas.yview)
+    result_canvas.configure(yscrollcommand=result_scroll.set)
+    
+    # 结果内部框架
+    self.result_inner_frame = ttk.Frame(result_canvas)
+    result_canvas.create_window((0,0), window=self.result_inner_frame, anchor="nw")
+
+    # 布局
+    result_scroll.pack(side=RIGHT, fill=Y)
+    result_canvas.pack(side=LEFT, expand=True, fill=BOTH)
+    
+    # 绑定配置事件
+    self.result_inner_frame.bind("<Configure>", 
+        lambda e: result_canvas.configure(scrollregion=result_canvas.bbox("all")))
+    self.compare_inner_frame.bind("<Configure>", 
+        lambda e: self.compare_canvas.configure(scrollregion=self.compare_canvas.bbox("all")))
+
+def perform_search(self):
+    """执行查询并显示结果"""
+    # 清空现有结果
+    for widget in self.result_inner_frame.winfo_children():
+        widget.destroy()
+
+    # 生成示例数据
+    sample_data = [
+        {"型号": "i9-13900K", "制造商": "Intel", "核心数": "24", "频率": "5.8GHz"},
+        {"型号": "Ryzen 9 7950X", "制造商": "AMD", "核心数": "16", "频率": "5.7GHz"},
+        {"型号": "Xeon W-3375", "制造商": "Intel", "核心数": "38", "频率": "4.0GHz"}
+    ]
+
+    # 创建结果项
+    for data in sample_data:
+        item_frame = ttk.Frame(self.result_inner_frame, padding=5, style="light.TFrame")
+        item_frame.pack(fill=X, pady=2)
+        
+        # 显示信息
+        ttk.Label(item_frame, text=data["型号"], width=15).pack(side=LEFT)
+        ttk.Label(item_frame, text=data["制造商"], width=10).pack(side=LEFT)
+        ttk.Label(item_frame, text=f"{data['核心数']}核").pack(side=LEFT)
+        
+        # 添加按钮
+        ttk.Button(item_frame, text="+ 对比",
+                  style="success.Outline.TButton",
+                  command=lambda d=data: self.add_to_compare(d)).pack(side=RIGHT)
+
+def add_to_compare(self, item_data):
+    """添加项目到对比列表"""
+    # 创建对比卡片
+    card = ttk.Frame(self.compare_inner_frame, padding=10, style="info.Outline.TFrame")
+    card.pack(side=LEFT, fill=Y, padx=5, pady=5)
+    
+    # 卡片内容
+    ttk.Label(card, text=item_data["型号"], 
+             font=("微软雅黑", 10, "bold")).pack(pady=5)
+    ttk.Separator(card).pack(fill=X)
+    ttk.Label(card, text=f"制造商: {item_data['制造商']}").pack(anchor="w")
+    ttk.Label(card, text=f"核心数: {item_data['核心数']}").pack(anchor="w")
+    ttk.Label(card, text=f"频率: {item_data['频率']}").pack(anchor="w")
+    
+    # 移除按钮
+    ttk.Button(card, text="× 移除",
+              style="danger.TButton",
+              command=lambda: card.destroy()).pack(pady=5)
+    
+    # 更新滚动区域
+    self.compare_inner_frame.update_idletasks()
+    self.compare_canvas.configure(scrollregion=self.compare_canvas.bbox("all"))
