@@ -1,3 +1,107 @@
+# 在文件头部新增导入
+from PySide6.QtWidgets import QToolButton
+from PySide6.QtGui import QAction
+
+# 替换原有的 UserButton 类
+class UserProfileWidget(QToolButton):
+    def __init__(self, username, parent=None):
+        super().__init__(parent)
+        self.setPopupMode(QToolButton.InstantPopup)
+        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.setArrowType(Qt.NoArrow)
+        self.setFocusPolicy(Qt.NoFocus)
+        
+        # 主按钮样式
+        self.setText(username)
+        self.setIcon(QIcon("user_icon.png"))  # 准备一个 24x24 的用户图标
+        self.setIconSize(QSize(24, 24))
+        
+        # 创建菜单
+        self.menu = QMenu(self)
+        self.menu.aboutToShow.connect(self.adjust_menu_position)
+        
+        # 菜单项
+        self.profile_action = QAction(QIcon("profile_icon.png"), "个人资料", self)
+        self.settings_action = QAction(QIcon("settings_icon.png"), "设置", self)
+        self.logout_action = QAction(QIcon("logout_icon.png"), "退出登录", self)
+        
+        # 添加菜单项
+        self.menu.addAction(self.profile_action)
+        self.menu.addSeparator()
+        self.menu.addAction(self.settings_action)
+        self.menu.addAction(self.logout_action)
+        
+        # 信号连接
+        self.logout_action.triggered.connect(parent.logout)
+        self.settings_action.triggered.connect(lambda: QMessageBox.information(parent, "设置", "设置功能待开发"))
+        
+        self.setMenu(self.menu)
+        
+        # 样式设置
+        self.setStyleSheet("""
+            QToolButton {
+                background-color: #e9ecef;
+                color: #212529;
+                border: 1px solid #ced4da;
+                border-radius: 8px;
+                padding: 8px 16px;
+                font: bold 14px;
+                min-width: 120px;
+                text-align: left;
+            }
+            QToolButton::menu-indicator {
+                image: none;
+                subcontrol-position: right center;
+                padding-right: 20px;
+            }
+            QToolButton:hover {
+                background-color: #dee2e6;
+            }
+            QToolButton:pressed {
+                background-color: #ced4da;
+            }
+        """)
+        
+        # 添加下拉箭头伪元素
+        self.setStyleSheet(self.styleSheet() + """
+            QToolButton::after {
+                content: "▼";
+                position: absolute;
+                right: 12px;
+                top: 50%;
+                transform: translateY(-50%);
+                font-size: 10px;
+                color: #6c757d;
+            }
+        """)
+    
+    def adjust_menu_position(self):
+        # 确保菜单在按钮下方居中显示
+        menu_width = self.menu.sizeHint().width()
+        button_width = self.width()
+        x_offset = (button_width - menu_width) // 2
+        self.menu.exec(self.mapToGlobal(self.rect().bottomLeft() + QPoint(x_offset, 5)))
+
+# 在 QueryClientApp 的 show_main_window 方法中替换用户按钮部分
+def show_main_window(self):
+    # ... 其他代码不变 ...
+    
+    # 用户信息（右上角）
+    user_frame = QFrame()
+    user_layout = QHBoxLayout()
+    user_layout.setContentsMargins(0, 0, 20, 0)  # 右侧留出边距
+    
+    self.user_profile = UserProfileWidget(self.current_user, self)
+    
+    user_layout.addStretch()
+    user_layout.addWidget(self.user_profile)
+    user_frame.setLayout(user_layout)
+    layout.addWidget(user_frame)
+    
+    # ... 后续代码不变 ...
+
+
+
 import sys
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
                                QLineEdit, QPushButton, QLabel, QTabWidget, QFrame, QTableWidget, QTableWidgetItem,
