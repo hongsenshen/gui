@@ -1,3 +1,354 @@
+import sys
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
+                               QLineEdit, QPushButton, QLabel, QTabWidget, QFrame, QTableWidget, QTableWidgetItem,
+                               QComboBox, QRadioButton, QCheckBox, QScrollArea, QSizePolicy, QMessageBox)
+from PySide6.QtGui import QPalette, QColor, QFont, QIcon
+from PySide6.QtCore import Qt, QSize
+import os
+
+class QueryClientApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("信息查询客户端")
+        self.setFixedSize(400, 300)
+        
+        # 设置图标
+        if os.path.exists("custom.png"):
+            self.setWindowIcon(QIcon("custom.png"))
+        
+        self.current_user = None
+        self.setup_login_window()
+        
+    def setup_login_window(self):
+        login_widget = QWidget()
+        layout = QVBoxLayout()
+        layout.setAlignment(Qt.AlignCenter)
+        
+        title = QLabel("信息查询系统")
+        title.setFont(QFont("Helvetica", 20, QFont.Bold))
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        
+        form_layout = QFormLayout()
+        form_layout.setSpacing(10)
+        
+        self.username_entry = QLineEdit()
+        self.username_entry.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #ced4da;
+                border-radius: 5px;
+                padding: 5px;
+                background-color: #ffffff;
+            }
+            QLineEdit:focus {
+                border: 1px solid #007bff;
+            }
+        """)
+        form_layout.addRow("用户名:", self.username_entry)
+        
+        self.password_entry = QLineEdit()
+        self.password_entry.setEchoMode(QLineEdit.Password)
+        self.password_entry.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #ced4da;
+                border-radius: 5px;
+                padding: 5px;
+                background-color: #ffffff;
+            }
+            QLineEdit:focus {
+                border: 1px solid #007bff;
+            }
+        """)
+        form_layout.addRow("密码:", self.password_entry)
+        
+        layout.addLayout(form_layout)
+        
+        login_button = QPushButton("登录")
+        login_button.setStyleSheet("""
+            QPushButton {
+                background-color: #007bff;
+                color: white;
+                border-radius: 5px;
+                padding: 8px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #0056b3;
+            }
+        """)
+        login_button.clicked.connect(self.login)
+        layout.addWidget(login_button)
+        
+        layout.addStretch()
+        login_widget.setLayout(layout)
+        self.setCentralWidget(login_widget)
+        
+    def login(self):
+        username = self.username_entry.text()
+        password = self.password_entry.text()
+        if username and password:
+            self.current_user = username
+            self.show_main_window()
+        else:
+            QMessageBox.critical(self, "登录失败", "请输入用户名和密码")
+            
+    def show_main_window(self):
+        self.setFixedSize(900, 600)
+        
+        main_widget = QWidget()
+        layout = QVBoxLayout()
+        
+        # 用户信息
+        user_frame = QFrame()
+        user_layout = QHBoxLayout()
+        user_label = QLabel(f"欢迎, {self.current_user}")
+        user_label.setStyleSheet("font-size: 14px; color: #343a40;")
+        user_layout.addStretch()
+        user_layout.addWidget(user_label)
+        user_frame.setLayout(user_layout)
+        layout.addWidget(user_frame)
+        
+        # Tab 切换
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 0px;
+            }
+            QTabBar::tab {
+                background: #e9ecef;
+                color: #212529;
+                padding: 8px 15px;
+                font: bold 12px;
+                border: none;
+                border-top-left-radius: 5px;
+                border-top-right-radius: 5px;
+            }
+            QTabBar::tab:selected {
+                background: #007bff;
+                color: white;
+            }
+            QTabBar::tab:hover {
+                background: #cce5ff;
+            }
+        """)
+        self.tabs.addTab(QWidget(), "CPU名称查询")
+        self.tabs.addTab(QWidget(), "CPU规格参数查询")
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+        layout.addWidget(self.tabs)
+        
+        # 内容区域
+        self.content_widget = QWidget()
+        self.content_layout = QHBoxLayout()
+        self.content_widget.setLayout(self.content_layout)
+        layout.addWidget(self.content_widget, stretch=1)
+        
+        main_widget.setLayout(layout)
+        self.setCentralWidget(main_widget)
+        
+        self.show_cpu_name_query()
+        
+        # 设置全局样式
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #f8f9fa;
+            }
+        """)
+        
+    def on_tab_changed(self, index):
+        if index == 0:
+            self.show_cpu_name_query()
+        elif index == 1:
+            self.show_cpu_spec_query()
+
+    def create_query_page(self, fields, table_headers):
+        for i in reversed(range(self.content_layout.count())):
+            self.content_layout.itemAt(i).widget().setParent(None)
+        
+        # 左侧搜索
+        search_frame = QFrame()
+        search_frame.setStyleSheet("""
+            QFrame {
+                border: 1px solid #ced4da;
+                border-radius: 5px;
+                background-color: #ffffff;
+                padding: 10px;
+            }
+        """)
+        search_layout = QFormLayout()
+        search_layout.setSpacing(10)
+        
+        for field, field_type in fields.items():
+            if field_type == "entry":
+                entry = QLineEdit()
+                entry.setStyleSheet("""
+                    QLineEdit {
+                        border: 1px solid #ced4da;
+                        border-radius: 5px;
+                        padding: 5px;
+                    }
+                    QLineEdit:focus {
+                        border: 1px solid #007bff;
+                    }
+                """)
+                search_layout.addRow(f"{field}:", entry)
+            elif field_type == "combo":
+                combo = QComboBox()
+                combo.addItems(["选项1", "选项2", "选项3"])
+                combo.setStyleSheet("""
+                    QComboBox {
+                        border: 1px solid #ced4da;
+                        border-radius: 5px;
+                        padding: 5px;
+                    }
+                """)
+                search_layout.addRow(f"{field}:", combo)
+            elif field_type == "radio":
+                radio_frame = QFrame()
+                radio_layout = QHBoxLayout()
+                radio_yes = QRadioButton("是")
+                radio_no = QRadioButton("否")
+                radio_layout.addWidget(radio_yes)
+                radio_layout.addWidget(radio_no)
+                radio_frame.setLayout(radio_layout)
+                search_layout.addRow(f"{field}:", radio_frame)
+            elif field_type == "check":
+                check = QCheckBox("启用")
+                search_layout.addRow(f"{field}:", check)
+        
+        search_button = QPushButton("查询")
+        search_button.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                border-radius: 5px;
+                padding: 8px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+        """)
+        search_button.clicked.connect(self.perform_search)
+        search_layout.addRow(search_button)
+        
+        scroll = QScrollArea()
+        scroll.setWidget(search_frame)
+        scroll.setWidgetResizable(True)
+        self.content_layout.addWidget(scroll)
+        
+        # 右侧表格
+        table_frame = QFrame()
+        table_frame.setStyleSheet("""
+            QFrame {
+                border: 1px solid #ced4da;
+                border-radius: 5px;
+                background-color: #ffffff;
+            }
+        """)
+        table_layout = QVBoxLayout()
+        
+        self.table = QTableWidget()
+        self.table.setStyleSheet("""
+            QTableWidget {
+                border: none;
+                background-color: transparent;
+            }
+            QTableWidget::item {
+                border: 1px solid #ced4da;
+                padding: 5px;
+            }
+            QHeaderView::section {
+                background-color: #e9ecef;
+                border: 1px solid #ced4da;
+                padding: 5px;
+                font-weight: bold;
+            }
+        """)
+        table_layout.addWidget(self.table)
+        
+        table_frame.setLayout(table_layout)
+        self.content_layout.addWidget(table_frame, stretch=1)
+        
+        self.table_headers = table_headers
+        
+    def perform_search(self):
+        sample_data = [
+            ["示例1", "Intel", "4", "3.2GHz", "A", "B", "C", "D"],
+            ["示例2", "AMD", "6", "3.8GHz", "E", "F", "G", "H"],
+            ["示例3", "Intel", "8", "4.0GHz", "I", "J", "K", "L"]
+        ]
+        
+        print("Sample data:", sample_data)
+        print("Table headers:", self.table_headers)
+        
+        if sample_data and len(sample_data) > 0:
+            headers = ["属性"] + [f"数据{i+1}" for i in range(len(sample_data))]
+            self.table.setColumnCount(len(headers))
+            self.table.setRowCount(len(self.table_headers))
+            self.table.setHorizontalHeaderLabels(headers)
+            
+            for row_idx in range(len(self.table_headers)):
+                values = [self.table_headers[row_idx]] + [sample_data[col_idx][row_idx] for col_idx in range(len(sample_data))]
+                print(f"Row {row_idx} values inserted:", values)
+                
+                for col_idx, val in enumerate(values):
+                    item = QTableWidgetItem(val)
+                    item.setTextAlignment(Qt.AlignCenter)
+                    if row_idx % 2 == 0:
+                        item.setBackground(QColor("#f0f0f0"))
+                    else:
+                        item.setBackground(QColor("#ffffff"))
+                    if col_idx > 0 and values[1:].count(val) < len(values[1:]):
+                        item.setForeground(QColor("red"))
+                    self.table.setItem(row_idx, col_idx, item)
+            
+            self.table.resizeColumnsToContents()
+            print("Table items inserted:", self.table.rowCount(), "rows,", self.table.columnCount(), "columns")
+        else:
+            print("No data to display")
+            self.table.setRowCount(0)
+            self.table.setColumnCount(0)
+        
+    def show_cpu_name_query(self):
+        fields = {
+            "CPU型号": "entry",
+            "制造商": "combo",
+            "是否超频": "radio",
+            "包含参数": "check"
+        }
+        headers = ["型号", "制造商", "核心数", "频率", "额外1", "额外2", "额外3", "额外4"]
+        self.create_query_page(fields, headers)
+        
+    def show_cpu_spec_query(self):
+        fields = {
+            "核心数": "entry",
+            "线程数": "entry",
+            "制程": "combo",
+            "是否支持超线程": "radio"
+        }
+        headers = ["核心数", "线程数", "缓存", "TDP", "额外1", "额外2", "额外3", "额外4"]
+        self.create_query_page(fields, headers)
+        
+    def logout(self):
+        self.current_user = None
+        self.setup_login_window()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")  # 使用 Fusion 主题，现代化外观
+    palette = QPalette()
+    palette.setColor(QPalette.Window, QColor("#f8f9fa"))
+    palette.setColor(QPalette.WindowText, QColor("#212529"))
+    palette.setColor(QPalette.Button, QColor("#007bff"))
+    palette.setColor(QPalette.ButtonText, QColor("#ffffff"))
+    app.setPalette(palette)
+    
+    window = QueryClientApp()
+    window.show()
+    sys.exit(app.exec())
+
+
+
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
