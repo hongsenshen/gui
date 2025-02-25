@@ -1,3 +1,235 @@
+
+import sys
+import os
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+                               QLineEdit, QPushButton, QLabel, QTabWidget, QFrame, QTreeView, 
+                               QComboBox, QRadioButton, QCheckBox, QScrollArea, QMessageBox)
+from PySide6.QtGui import QStandardItemModel, QStandardItem, QIcon
+from PySide6.QtCore import Qt
+
+class QueryClientApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("信息查询客户端")
+        self.setFixedSize(400, 300)
+        
+        # 设置图标（假设有 custom.png）
+        if os.path.exists("custom.png"):
+            self.setWindowIcon(QIcon("custom.png"))
+        
+        self.current_user = None
+        self.setup_login_window()
+        
+    def setup_login_window(self):
+        login_widget = QWidget()
+        layout = QVBoxLayout()
+        
+        title = QLabel("信息查询系统")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 20px; font-weight: bold;")
+        layout.addWidget(title)
+        
+        layout.addWidget(QLabel("用户名:"))
+        self.username_entry = QLineEdit()
+        layout.addWidget(self.username_entry)
+        
+        layout.addWidget(QLabel("密码:"))
+        self.password_entry = QLineEdit()
+        self.password_entry.setEchoMode(QLineEdit.Password)
+        layout.addWidget(self.password_entry)
+        
+        login_button = QPushButton("登录")
+        login_button.clicked.connect(self.login)
+        login_button.setStyleSheet("background-color: #28a745; color: white; padding: 5px;")
+        layout.addWidget(login_button)
+        
+        layout.addStretch()
+        login_widget.setLayout(layout)
+        self.setCentralWidget(login_widget)
+        
+    def login(self):
+        username = self.username_entry.text()
+        password = self.password_entry.text()
+        if username and password:
+            self.current_user = username
+            self.show_main_window()
+        else:
+            QMessageBox.critical(self, "登录失败", "请输入用户名和密码")
+            
+    def show_main_window(self):
+        self.setFixedSize(900, 600)
+        
+        main_widget = QWidget()
+        layout = QVBoxLayout()
+        
+        # 用户信息
+        user_frame = QFrame()
+        user_layout = QHBoxLayout()
+        user_label = QLabel(f"欢迎, {self.current_user}")
+        user_layout.addStretch()
+        user_layout.addWidget(user_label)
+        user_frame.setLayout(user_layout)
+        layout.addWidget(user_frame, alignment=Qt.AlignTop)
+        
+        # Tab 切换
+        self.tabs = QTabWidget()
+        self.tabs.addTab(QWidget(), "CPU名称查询")
+        self.tabs.addTab(QWidget(), "CPU规格参数查询")
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+        layout.addWidget(self.tabs)
+        
+        # 内容区域
+        self.content_widget = QWidget()
+        self.content_layout = QHBoxLayout()
+        self.content_widget.setLayout(self.content_layout)
+        layout.addWidget(self.content_widget, stretch=1)
+        
+        main_widget.setLayout(layout)
+        self.setCentralWidget(main_widget)
+        
+        # 去掉 Tab 下划线并美化
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 0px;
+            }
+            QTabBar::tab {
+                background: #e9ecef;
+                color: #212529;
+                padding: 8px 15px;
+                font: bold 12px;
+                border: none;
+            }
+            QTabBar::tab:selected {
+                background: #007bff;
+                color: white;
+            }
+            QTabBar::tab:hover {
+                background: #cce5ff;
+            }
+        """)
+        
+        self.show_cpu_name_query()
+        
+    def on_tab_changed(self, index):
+        if index == 0:
+            self.show_cpu_name_query()
+        elif index == 1:
+            self.show_cpu_spec_query()
+
+    def create_query_page(self, fields, table_headers):
+        for i in reversed(range(self.content_layout.count())):
+            self.content_layout.itemAt(i).widget().setParent(None)
+        
+        # 左侧搜索
+        search_frame = QFrame()
+        search_frame.setFrameShape(QFrame.Box)
+        search_frame.setLineWidth(1)
+        search_layout = QVBoxLayout()
+        
+        for field, field_type in fields.items():
+            layout = QHBoxLayout()
+            layout.addWidget(QLabel(f"{field}:"))
+            if field_type == "entry":
+                entry = QLineEdit()
+                layout.addWidget(entry)
+            elif field_type == "combo":
+                combo = QComboBox()
+                combo.addItems(["选项1", "选项2", "选项3"])
+                layout.addWidget(combo)
+            elif field_type == "radio":
+                radio_frame = QFrame()
+                radio_layout = QHBoxLayout()
+                radio_layout.addWidget(QRadioButton("是"))
+                radio_layout.addWidget(QRadioButton("否"))
+                radio_frame.setLayout(radio_layout)
+                layout.addWidget(radio_frame)
+            elif field_type == "check":
+                check = QCheckBox("启用")
+                layout.addWidget(check)
+            search_layout.addLayout(layout)
+        
+        search_button = QPushButton("查询")
+        search_button.clicked.connect(self.perform_search)
+        search_button.setStyleSheet("background-color: #28a745; color: white; padding: 5px;")
+        search_layout.addWidget(search_button)
+        search_layout.addStretch()
+        search_frame.setLayout(search_layout)
+        
+        scroll = QScrollArea()
+        scroll.setWidget(search_frame)
+        scroll.setWidgetResizable(True)
+        self.content_layout.addWidget(scroll)
+        
+        # 右侧表格
+        table_frame = QFrame()
+        table_frame.setFrameShape(QFrame.Box)
+        table_frame.setLineWidth(1)
+        table_layout = QVBoxLayout()
+        
+        self.tree = QTreeView()
+        self.tree.setStyleSheet("QTreeView { border: 1px solid #ced4da; } "
+                               "QTreeView::item { border: 1px solid #ced4da; height: 30px; }")
+        self.model = QStandardItemModel()
+        self.tree.setModel(self.model)
+        table_layout.addWidget(self.tree)
+        
+        table_frame.setLayout(table_layout)
+        self.content_layout.addWidget(table_frame, stretch=1)
+        
+        self.table_headers = table_headers
+        self.perform_search()
+        
+    def perform_search(self):
+        self.model.clear()
+        sample_data = [
+            ["示例1", "Intel", "4", "3.2GHz"],
+            ["示例2", "AMD", "6", "3.8GHz"],
+            ["示例3", "Intel", "8", "4.0GHz"]
+        ]
+        
+        if sample_data and len(sample_data) > 0:
+            self.model.setHorizontalHeaderLabels(self.table_headers[:len(sample_data[0])])
+            for row in sample_data:
+                items = [QStandardItem(field) for field in row]
+                self.model.appendRow(items)
+            for i in range(self.model.columnCount()):
+                self.tree.setColumnWidth(i, 100)
+        else:
+            self.model.setHorizontalHeaderLabels([])
+        
+    def show_cpu_name_query(self):
+        fields = {
+            "CPU型号": "entry",
+            "制造商": "combo",
+            "是否超频": "radio",
+            "包含参数": "check"
+        }
+        headers = ["型号", "制造商", "核心数", "频率"]
+        self.create_query_page(fields, headers)
+        
+    def show_cpu_spec_query(self):
+        fields = {
+            "核心数": "entry",
+            "线程数": "entry",
+            "制程": "combo",
+            "是否支持超线程": "radio"
+        }
+        headers = ["核心数", "线程数", "缓存", "TDP"]
+        self.create_query_page(fields, headers)
+        
+    def logout(self):
+        self.current_user = None
+        self.setup_login_window()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = QueryClientApp()
+    window.show()
+    sys.exit(app.exec())
+
+
+
+
 def create_query_page(self, fields, table_headers):
     """创建带对比功能的查询页面"""
     for widget in self.content_frame.winfo_children():
