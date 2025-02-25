@@ -242,6 +242,250 @@ if __name__ == "__main__":
 
 
 
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
+from ttkbootstrap.dialogs import Messagebox
+import tkinter as tk
+from tkinter import ttk as tkinter_ttk
+import os
+
+class QueryClientApp:
+    def __init__(self):
+        self.root = ttk.Window(themename="flatly")
+        self.root.title("信息查询客户端")
+        self.root.geometry("400x300")
+        self.root.resizable(False, False)
+        
+        # 设置图标（假设有 custom.png）
+        if os.path.exists("custom.png"):
+            self.root.iconphoto(True, tk.PhotoImage(file="custom.png"))
+        
+        self.current_user = None
+        self.setup_login_window()
+        
+    def setup_login_window(self):
+        login_frame = ttk.Frame(self.root, padding=20)
+        login_frame.pack(expand=True)
+        
+        ttk.Label(login_frame, text="信息查询系统", font=("Helvetica", 20, "bold")).pack(pady=20)
+        ttk.Label(login_frame, text="用户名:").pack(pady=5)
+        self.username_entry = ttk.Entry(login_frame)
+        self.username_entry.pack(fill=X, pady=5)
+        
+        ttk.Label(login_frame, text="密码:").pack(pady=5)
+        self.password_entry = ttk.Entry(login_frame, show="*")
+        self.password_entry.pack(fill=X, pady=5)
+        
+        ttk.Button(login_frame, text="登录", command=self.login, style="success.TButton").pack(pady=20)
+        
+    def login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        if username and password:
+            self.current_user = username
+            self.show_main_window()
+        else:
+            Messagebox.show_error("请输入用户名和密码", "登录失败")
+            
+    def show_main_window(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+            
+        self.root.geometry("900x600")
+        self.root.resizable(False, False)
+        
+        self.main_frame = ttk.Frame(self.root)
+        self.main_frame.pack(fill=BOTH, expand=True)
+        
+        user_frame = ttk.Frame(self.main_frame, borderwidth=0)
+        user_frame.pack(side=TOP, fill=X, padx=10, pady=(5, 10))
+        
+        self.user_menu = ttk.Menubutton(user_frame, text=f"欢迎, {self.current_user}")
+        self.user_menu.pack(side=RIGHT)
+        menu = ttk.Menu(self.user_menu)
+        menu.add_command(label="退出登录", command=self.logout)
+        self.user_menu.configure(menu=menu)
+        
+        style = ttk.Style()
+        style.configure("Custom.TNotebook", borderwidth=0, background="#f8f9fa")
+        style.configure("Custom.TNotebook.Tab", 
+                       font=("Helvetica", 12, "bold"), 
+                       padding=[15, 8], 
+                       background="#e9ecef", 
+                       foreground="#212529",
+                       borderwidth=0, 
+                       relief="flat")
+        style.map("Custom.TNotebook.Tab",
+                 background=[("selected", "#007bff"), ("active", "#cce5ff")],
+                 foreground=[("selected", "white"), ("active", "#212529")],
+                 expand=[("selected", 0)],
+                 relief=[("selected", "flat")])
+        
+        self.notebook = ttk.Notebook(self.main_frame, style="Custom.TNotebook")
+        self.notebook.pack(fill=X, padx=10, pady=(0, 10))
+        
+        self.notebook.add(tk.Frame(self.notebook), text="CPU名称查询")
+        self.notebook.add(tk.Frame(self.notebook), text="CPU规格参数查询")
+        
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        
+        self.content_frame = ttk.Frame(self.main_frame, borderwidth=0)
+        self.content_frame.pack(fill=BOTH, expand=True, padx=10, pady=0)
+        
+        self.show_cpu_name_query()
+        
+    def on_tab_changed(self, event):
+        selected_tab = self.notebook.index(self.notebook.select())
+        if selected_tab == 0:
+            self.show_cpu_name_query()
+        elif selected_tab == 1:
+            self.show_cpu_spec_query()
+
+    def create_query_page(self, fields, table_headers):
+        for widget in self.content_frame.winfo_children():
+            widget.destroy()
+            
+        # 左侧搜索区域
+        search_frame = ttk.LabelFrame(self.content_frame, text="搜索条件", padding=15, bootstyle="info")
+        search_frame.pack(side=LEFT, fill=Y, padx=5, pady=5, ipadx=10, ipady=10)
+        
+        row = 0
+        self.search_vars = {}
+        for field, field_type in fields.items():
+            label = ttk.Label(search_frame, text=f"{field}:", width=12, anchor="e")
+            label.grid(row=row, column=0, pady=8, padx=(0, 5), sticky="e")
+            
+            if field_type == "entry":
+                var = tk.StringVar()
+                entry = ttk.Entry(search_frame, textvariable=var)
+                entry.grid(row=row, column=1, pady=8, sticky="ew")
+                self.search_vars[field] = var
+            elif field_type == "combo":
+                var = tk.StringVar()
+                combo = ttk.Combobox(search_frame, textvariable=var, 
+                                   values=["选项1", "选项2", "选项3"], state="readonly")
+                combo.grid(row=row, column=1, pady=8, sticky="ew")
+                combo.set("请选择")
+                self.search_vars[field] = var
+            elif field_type == "radio":
+                var = tk.StringVar(value="是")
+                frame = ttk.Frame(search_frame)
+                frame.grid(row=row, column=1, pady=8, sticky="w")
+                for option in ["是", "否"]:
+                    ttk.Radiobutton(frame, text=option, value=option, 
+                                  variable=var).pack(side=LEFT, padx=5)
+                self.search_vars[field] = var
+            elif field_type == "check":
+                var = tk.BooleanVar()
+                ttk.Checkbutton(search_frame, text="启用", variable=var,
+                              bootstyle="info-square-toggle").grid(row=row, column=1, pady=8, sticky="w")
+                self.search_vars[field] = var
+                
+            row += 1
+            
+        ttk.Button(search_frame, text="查询", command=self.perform_search,
+                  style="success-outline.TButton", width=15).grid(row=row, column=0, columnspan=2, pady=15)
+        
+        # 右侧表格区域
+        table_frame = ttk.LabelFrame(self.content_frame, text="查询结果", padding=15, bootstyle="info")
+        table_frame.pack(side=RIGHT, fill=BOTH, expand=True, padx=5, pady=5)
+        
+        style = ttk.Style()
+        style.configure("Grid.Treeview", 
+                       rowheight=30, 
+                       borderwidth=1, 
+                       relief="solid", 
+                       bordercolor="#ced4da",
+                       background="white")
+        
+        self.tree = tkinter_ttk.Treeview(table_frame, style="Grid.Treeview", show="headings")
+        self.tree.pack(fill=BOTH, expand=True)
+        
+        self.table_headers = table_headers
+        self.perform_search()
+        
+    def perform_search(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        sample_data = [
+            ["示例1", "Intel", "4", "3.2GHz"],
+            ["示例2", "AMD", "6", "3.8GHz"],
+            ["示例3", "Intel", "8", "4.0GHz"]
+        ]
+        
+        if sample_data and len(sample_data) > 0:
+            # 设置纵向表头
+            headers = ["属性"] + [f"数据{i+1}" for i in range(len(sample_data))]
+            self.tree["columns"] = headers
+            for col in headers:
+                self.tree.heading(col, text=col)
+                self.tree.column(col, width=100, anchor="center")
+            
+            # 转置数据并填充
+            num_rows = len(self.table_headers)
+            num_cols = len(sample_data) + 1  # +1 为标题列
+            for row_idx, header in enumerate(self.table_headers):
+                values = [header] + [sample_data[col_idx][row_idx] for col_idx in range(len(sample_data))]
+                item_id = self.tree.insert("", "end", values=values)
+                
+                # 设置奇偶行背景色
+                tag = "even" if row_idx % 2 == 0 else "odd"
+                self.tree.item(item_id, tags=(tag,))
+                
+                # 高亮不同数据
+                data_values = values[1:]  # 排除标题列
+                for col_idx, val in enumerate(data_values, 1):
+                    if data_values.count(val) < len(data_values):  # 如果值不唯一
+                        self.tree.tag_configure(f"red_{row_idx}_{col_idx}", foreground="red")
+                        self.tree.item(item_id, tags=(tag, f"red_{row_idx}_{col_idx}"))
+        
+        else:
+            self.tree["columns"] = []
+        
+        # 设置背景色标签
+        self.tree.tag_configure("even", background="#f0f0f0")
+        self.tree.tag_configure("odd", background="#ffffff")
+        
+    def show_cpu_name_query(self):
+        fields = {
+            "CPU型号": "entry",
+            "制造商": "combo",
+            "是否超频": "radio",
+            "包含参数": "check"
+        }
+        headers = ["型号", "制造商", "核心数", "频率"]
+        self.create_query_page(fields, headers)
+        
+    def show_cpu_spec_query(self):
+        fields = {
+            "核心数": "entry",
+            "线程数": "entry",
+            "制程": "combo",
+            "是否支持超线程": "radio"
+        }
+        headers = ["核心数", "线程数", "缓存", "TDP"]
+        self.create_query_page(fields, headers)
+        
+    def logout(self):
+        self.current_user = None
+        for widget in self.root.winfo_children():
+            widget.destroy()
+        self.setup_login_window()
+        
+    def run(self):
+        self.root.mainloop()
+
+if __name__ == "__main__":
+    app = QueryClientApp()
+    app.run()
+
+
+
+
+
+
+
 
 
 import sys
