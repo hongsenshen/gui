@@ -1,9 +1,141 @@
 import sys
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-                               QLineEdit, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QMenu, QCheckBox,
-                               QTabWidget, QComboBox)
-from PySide6.QtGui import QFont, QColor, QPalette
-from PySide6.QtCore import Qt, Slot, QTimer, QHeaderView
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit,
+                               QPushButton, QLabel, QTableView, QMenu, QCheckBox, QTabWidget, QComboBox, QGroupBox)
+from PySide6.QtGui import QFont, QColor, QPalette, QStandardItem, QStandardItemModel
+from PySide6.QtCore import Qt, Slot, QTimer, QHeaderView, Signal
+
+# 公共样式定义
+STYLES = {
+    "group_box": """
+        QGroupBox {
+            font: bold 14px "Microsoft YaHei";
+            color: #374151;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            margin-top: 10px;
+            padding: 10px;
+            background: #ffffff;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 0 5px;
+            background: #ffffff;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            margin-left: 5px;
+        }
+    """,
+    "button": """
+        QPushButton {
+            background: #0078d4;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font: bold 16px "Microsoft YaHei";
+        }
+        QPushButton:hover { background: #005ba1; }
+    """,
+    "input": """
+        padding: 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        font-size: 14px;
+    """,
+    "combo_box": """
+        QComboBox {
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 14px;
+            background: #ffffff;
+            color: #374151;
+        }
+        QComboBox:hover {
+            border: 1px solid #0078d4;
+            background: #f3f4f6;
+        }
+        QComboBox::drop-down {
+            border: none;
+            width: 20px;
+        }
+        QComboBox QAbstractItemView {
+            border: 1px solid #d1d5db;
+            background: #ffffff;
+            color: #374151;
+            selection-background-color: #dbeafe;
+            selection-color: #1f2937;
+        }
+    """,
+    "tab_widget": """
+        QTabWidget::pane {
+            border: 1px solid #e5e7eb;
+            background: #ffffff;
+            border-radius: 8px;
+        }
+        QTabBar::tab {
+            background: #e5e7eb;
+            border: 1px solid #d1d5db;
+            padding: 12px 24px;
+            font: bold 16px "Microsoft YaHei";
+            color: #6b7280;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            margin-right: 2px;
+        }
+        QTabBar::tab:selected {
+            background: #ffffff;
+            border-bottom: none;
+            color: #0078d4;
+        }
+    """,
+    "table": """
+        QTableView {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background: #ffffff;
+            font-size: 14px;
+        }
+        QHeaderView::section {
+            background: #f3f4f6;
+            padding: 12px;
+            border: 1px solid #e5e7eb;
+            font: bold 14px "Microsoft YaHei";
+            color: #374151;
+        }
+    """,
+    "menu": """
+        QMenu {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #eff6ff, stop:1 #dbeafe);
+            border: 1px solid #bfdbfe;
+            border-radius: 6px;
+            padding: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        QMenu::item {
+            padding: 8px 16px;
+            color: #1f2937;
+            font: 14px "Microsoft YaHei";
+            background: transparent;
+        }
+        QMenu::item:selected {
+            background: #93c5fd;
+            color: #1f2937;
+            border-radius: 4px;
+        }
+    """,
+    "user_button": """
+        QPushButton {
+            background: #ffffff;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 8px 16px;
+            font: 14px "Microsoft YaHei";
+            color: #374151;
+        }
+        QPushButton:hover { background: #f3f4f6; }
+    """
+}
 
 # -------------------- 窗口管理器 --------------------
 class WindowManager:
@@ -26,16 +158,13 @@ class WindowManager:
             new_window = self.windows[name]
             if self.current_window:
                 self.current_window.hide()
-            
             if data:
                 new_window.set_data(data)
             new_window.move(self.current_window.pos() if self.current_window else new_window.pos())
             new_window.show()
             QTimer.singleShot(50, lambda: (new_window.raise_(), new_window.activateWindow()))
-            print(f"窗口 {name} 显示状态: {new_window.isVisible()}, 激活状态: {new_window.isActiveWindow()}")
-            
-            self.current_window = new_window
             print(f"切换到窗口: {name}")
+            self.current_window = new_window
         else:
             print(f"窗口 {name} 未注册")
 
@@ -58,12 +187,63 @@ class BaseWindow(QMainWindow):
             event.ignore()
             self.hide()
 
+# -------------------- 通用工具函数 --------------------
+def create_grouped_form(title, fields, parent_layout, input_widgets, button_text=None, button_signal=None):
+    """创建带标题的表单区域，可选添加按钮"""
+    form = QGroupBox(title)
+    form.setStyleSheet(STYLES["group_box"])
+    form_layout = QVBoxLayout()
+    form_layout.setSpacing(15)
+    
+    for field, config in fields.items():
+        hbox = QHBoxLayout()
+        label = QLabel(f"{config['label']}：")
+        label.setStyleSheet("font-size: 14px; color: #374151;")
+        if config["type"] == "text":
+            widget = QLineEdit()
+            widget.setPlaceholderText(config.get("placeholder", ""))
+            widget.setStyleSheet(STYLES["input"])
+            widget.setFixedWidth(300)
+            if config.get("password"):
+                widget.setEchoMode(QLineEdit.Password)
+        elif config["type"] == "combo":
+            widget = QComboBox()
+            widget.addItems(config["items"])
+            widget.setStyleSheet(STYLES["combo_box"])
+            widget.setFixedWidth(300)
+        elif config["type"] == "checkbox":
+            widget = QCheckBox(config["label"])
+            widget.setStyleSheet("font-size: 14px; color: #374151;")
+            hbox.addWidget(widget)
+            input_widgets[field] = widget
+            form_layout.addLayout(hbox)
+            continue
+        input_widgets[field] = widget
+        hbox.addWidget(label)
+        hbox.addWidget(widget)
+        hbox.addStretch()
+        form_layout.addLayout(hbox)
+    
+    if button_text and button_signal:
+        btn = QPushButton(button_text)
+        btn.setStyleSheet(STYLES["button"])
+        btn.clicked.connect(button_signal)
+        form_layout.addWidget(btn, alignment=Qt.AlignLeft)
+    
+    form.setLayout(form_layout)
+    parent_layout.addWidget(form)
+    return form
+
 # -------------------- 登录窗口 --------------------
 class LoginWindow(BaseWindow):
+    login_signal = Signal()  # 定义登录信号
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("登录 - CPU信息查询系统")
+        self.input_widgets = {}
         self._setup_ui()
+        self.login_signal.connect(self._on_login_clicked)
 
     def _setup_ui(self):
         widget = QWidget()
@@ -75,72 +255,41 @@ class LoginWindow(BaseWindow):
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
 
-        form = QWidget()
-        form_layout = QFormLayout()
-        form_layout.setLabelAlignment(Qt.AlignRight)
-        form_layout.setFormAlignment(Qt.AlignCenter)
-        form_layout.setVerticalSpacing(20)
-        self.username_input = QLineEdit()
-        self.password_input = QLineEdit()
-        self.password_input.setEchoMode(QLineEdit.Password)
-        
-        for w in [self.username_input, self.password_input]:
-            w.setFixedWidth(300)
-            w.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px;")
+        fields = {
+            "username": {"label": "用户名", "type": "text", "placeholder": "请输入用户名"},
+            "password": {"label": "密码", "type": "text", "placeholder": "请输入密码", "password": True}
+        }
+        create_grouped_form("登录信息", fields, layout, self.input_widgets, "登录系统", self.login_signal.emit)
 
-        form_layout.addRow("用户名：", self.username_input)
-        form_layout.addRow("密码：", self.password_input)
-        form.setLayout(form_layout)
-
-        btn_login = QPushButton("登录系统")
-        btn_login.setStyleSheet("""
-            QPushButton {
-                background: #0078d4; 
-                color: white;
-                padding: 12px 24px;
-                border-radius: 6px;
-                font: bold 16px "Microsoft YaHei";
-            }
-            QPushButton:hover { background: #005ba1; }
-        """)
-        btn_login.clicked.connect(self._on_login_clicked)
-
-        layout.addLayout(self._centered(form))
-        layout.addWidget(btn_login, alignment=Qt.AlignCenter)
         layout.addStretch()
-        
         widget.setLayout(layout)
         widget.setStyleSheet("background: #f0f2f5;")
         self.setCentralWidget(widget)
 
         self.setMinimumSize(1280, 720)
         self.setMaximumSize(1280, 720)
-        flags = self.windowFlags() & ~Qt.WindowMaximizeButtonHint
-        self.setWindowFlags(flags)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowMaximizeButtonHint)
 
     @Slot()
     def _on_login_clicked(self):
-        username = self.username_input.text()
-        password = self.password_input.text()
+        username = self.input_widgets["username"].text()
+        password = self.input_widgets["password"].text()
         if username and password == "123456":
             self.manager.switch_to("main", data={"username": username})
         else:
             print("登录失败")
 
-    def _centered(self, widget):
-        layout = QHBoxLayout()
-        layout.addStretch()
-        layout.addWidget(widget)
-        layout.addStretch()
-        return layout
-
 # -------------------- 主窗口 --------------------
 class MainWindow(BaseWindow):
+    query_signal = Signal(dict)  # 定义查询信号
+
     def __init__(self):
         super().__init__()
         self.username = "管理员"
         self.setWindowTitle("CPU信息查询系统")
+        self.input_widgets = {}
         self._setup_ui()
+        self.query_signal.connect(self._on_query)
 
     def _setup_ui(self):
         widget = QWidget()
@@ -151,169 +300,90 @@ class MainWindow(BaseWindow):
         self.header.addStretch()
         self.btn_user = UserButton(self.username)
         self.btn_user.menu.addAction("设置", self._open_settings)
-        self.btn_user.menu.addAction("退出", self._handle_logout)
-        self.btn_user.setStyleSheet("""
-            QPushButton {
-                background: #ffffff;
-                border: 1px solid #d1d5db;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font: 14px "Microsoft YaHei";
-                color: #374151;
-            }
-            QPushButton:hover { background: #f3f4f6; }
-        """)
+        self.btn_user.menu.addAction("退出登录", self._handle_logout)
         self.header.addWidget(self.btn_user)
         layout.addLayout(self.header)
 
-        # Tab 标签
+        # 主内容区域
+        content_layout = QHBoxLayout()
+
+        # 左侧查询模块
+        self.query_group = QGroupBox("查询条件")
+        self.query_layout = QVBoxLayout()
+        self.query_layout.setSpacing(15)
+
         self.tab_widget = QTabWidget()
-        self.tab_widget.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #e5e7eb;
-                background: #ffffff;
-                border-radius: 8px;
-            }
-            QTabBar::tab {
-                background: #e5e7eb;
-                border: 1px solid #d1d5db;
-                padding: 12px 24px;
-                font: bold 16px "Microsoft YaHei";
-                color: #6b7280;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background: #ffffff;
-                border-bottom: none;
-                color: #0078d4;
-            }
-        """)
+        self.tab_widget.setStyleSheet(STYLES["tab_widget"])
         
-        # 型号查询标签
         name_tab = self._create_query_tab("name_query", {
             "model": {"label": "型号名称", "type": "text", "placeholder": "输入型号关键字"},
             "vendor": {"label": "制造商", "type": "combo", "items": ["全部", "Intel", "AMD", "ARM"]}
         }, self._handle_name_query)
         self.tab_widget.addTab(name_tab, "型号查询")
 
-        # 规格查询标签
         spec_tab = self._create_query_tab("spec_query", {
             "cores": {"label": "核心数", "type": "text", "placeholder": "输入最小核心数"},
             "tdp": {"label": "最大TDP", "type": "combo", "items": ["全部", "35W", "65W", "95W"]}
         }, self._handle_spec_query)
         self.tab_widget.addTab(spec_tab, "规格查询")
 
-        layout.addWidget(self.tab_widget, stretch=1)
+        self.query_group.setLayout(self.query_layout)
+        self.query_group.setFixedWidth(350)
+        content_layout.addWidget(self.query_group)
+
+        # 右侧表格
+        self.table = QTableView()
+        self.model = QStandardItemModel()
+        self.table.setModel(self.model)
+        self._init_table()
+        content_layout.addWidget(self.table, stretch=1)
+
+        layout.addLayout(content_layout, stretch=1)
         widget.setLayout(layout)
-        widget.setStyleSheet("background: #f9fafb;")
+        widget.setStyleSheet("background: #f0f2f5;")
         self.setCentralWidget(widget)
 
         self.resize(1280, 720)
         self.setMinimumSize(800, 600)
-        flags = (Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | 
-                 Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
-        self.setWindowFlags(flags)
 
     def _create_query_tab(self, name, fields, query_handler):
         tab = QWidget()
-        tab_layout = QHBoxLayout()
-
-        # 查询表单
-        form = QWidget()
-        form_layout = QFormLayout()
-        form_layout.setLabelAlignment(Qt.AlignRight)
-        form_layout.setFormAlignment(Qt.AlignLeft)
-        form_layout.setVerticalSpacing(20)
-        form_layout.setHorizontalSpacing(10)
-        self.input_widgets = {}
-        for field, config in fields.items():
-            if config["type"] == "text":
-                widget = QLineEdit()
-                widget.setPlaceholderText(config["placeholder"])
-                widget.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px;")
-                widget.setMinimumWidth(200)
-            elif config["type"] == "combo":
-                widget = QComboBox()
-                widget.addItems(config["items"])
-                widget.setStyleSheet("padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px;")
-                widget.setMinimumWidth(200)
-            self.input_widgets[field] = widget
-            form_layout.addRow(f"{config['label']}：", widget)
-
-        btn_query = QPushButton("查询")
-        btn_query.setStyleSheet("""
-            QPushButton {
-                background: #0078d4;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 6px;
-                font: bold 14px "Microsoft YaHei";
-            }
-            QPushButton:hover { background: #005ba1; }
-        """)
-        btn_query.clicked.connect(lambda: self._on_query(query_handler))
-        form_layout.addRow("", btn_query)
-        form.setLayout(form_layout)
-        form.setStyleSheet("background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px;")
-        form.setFixedWidth(300)
-        tab_layout.addWidget(form)
-
-        # 表格
-        table = QTableWidget()
-        self._init_table(table)
-        tab_layout.addWidget(table, stretch=1)
-        
+        tab_layout = QVBoxLayout()
+        create_grouped_form("", fields, self.query_layout, self.input_widgets, "查询", lambda: self.query_signal.emit(self._collect_conditions()))
         tab.setLayout(tab_layout)
-        setattr(self, f"{name}_table", table)  # 使用英文命名
+        setattr(self, f"{name}_table", self.table)
         return tab
 
-    def _init_table(self, table):
-        headers = ["型号", "制造商", "核心数", "基础频率", "TDP"]
-        table.setRowCount(len(headers))
-        table.setColumnCount(3)
-        table.setVerticalHeaderLabels(headers)
-        table.setHorizontalHeaderLabels(["数据1", "数据2", "数据3"])
-        
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        table.horizontalHeader().setMinimumSectionSize(150)
-        table.verticalHeader().setMinimumSectionSize(40)
-        table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e5e7eb;
-                border-radius: 8px;
-                background: #ffffff;
-                font-size: 14px;
-            }
-            QHeaderView::section {
-                background: #f3f4f6;
-                padding: 12px;
-                border: 1px solid #e5e7eb;
-                font: bold 14px "Microsoft YaHei";
-                color: #374151;
-            }
-            QTableWidget::item {
-                padding: 10px;
-            }
-        """)
+    def _init_table(self):
+        self.model.clear()
+        self.model.setRowCount(1)
+        self.model.setColumnCount(1)
+        placeholder = QStandardItem("数据为空")
+        placeholder.setTextAlignment(Qt.AlignCenter)
+        self.model.setItem(0, 0, placeholder)
+        self.table.horizontalHeader().hide()
+        self.table.verticalHeader().hide()
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.verticalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.setStyleSheet(STYLES["table"])
 
     def set_data(self, data):
         if "username" in data:
             self.username = data["username"]
             self.btn_user.setText(self.username)
 
-    @Slot()
-    def _on_query(self, handler):
-        conditions = {}
-        for field, widget in self.input_widgets.items():
-            if isinstance(widget, QLineEdit):
-                conditions[field] = widget.text()
-            elif isinstance(widget, QComboBox):
-                conditions[field] = widget.currentText()
-        handler(conditions)
+    def _collect_conditions(self):
+        return {field: widget.text() if isinstance(widget, QLineEdit) else widget.currentText()
+                for field, widget in self.input_widgets.items()}
+
+    @Slot(dict)
+    def _on_query(self, conditions):
+        if "model" in conditions:
+            self._handle_name_query(conditions)
+        elif "cores" in conditions:
+            self._handle_spec_query(conditions)
 
     def _handle_name_query(self, conditions):
         sample_data = [
@@ -321,7 +391,7 @@ class MainWindow(BaseWindow):
             ["Ryzen 9 5950X", "AMD", "16", "3.4GHz", "105W"],
             ["Cortex-A78", "ARM", "8", "2.8GHz", "35W"]
         ]
-        self._update_table(self.name_query_table, sample_data)  # 使用英文命名
+        self._update_table(sample_data)
 
     def _handle_spec_query(self, conditions):
         sample_data = [
@@ -329,14 +399,18 @@ class MainWindow(BaseWindow):
             ["Ryzen 7 5800X", "AMD", "8", "3.8GHz", "105W"],
             ["Cortex-A76", "ARM", "4", "2.4GHz", "25W"]
         ]
-        self._update_table(self.spec_query_table, sample_data)  # 使用英文命名
+        self._update_table(sample_data)
 
-    def _update_table(self, table, data):
-        table.setColumnCount(len(data))
-        table.setHorizontalHeaderLabels([f"数据{i+1}" for i in range(len(data))])
+    def _update_table(self, data):
+        self.model.clear()
+        headers = ["型号", "制造商", "核心数", "基础频率", "TDP"]
+        self.model.setVerticalHeaderLabels(headers)
+        self.model.setRowCount(len(headers))
+        self.model.setColumnCount(len(data))
+        self.model.beginInsertRows(self.model.index(0, 0), 0, len(headers) - 1)
         for col, row_data in enumerate(data):
             for row, value in enumerate(row_data):
-                item = QTableWidgetItem(value)
+                item = QStandardItem(value)
                 item.setTextAlignment(Qt.AlignCenter)
                 if "Intel" in value:
                     item.setBackground(QColor("#dbeafe"))
@@ -346,7 +420,8 @@ class MainWindow(BaseWindow):
                     item.setBackground(QColor("#d1fae5"))
                 elif "GHz" in value:
                     item.setBackground(QColor("#fef3c7"))
-                table.setItem(row, col, item)
+                self.model.setItem(row, col, item)
+        self.model.endInsertRows()
 
     @Slot()
     def _open_settings(self):
@@ -358,10 +433,14 @@ class MainWindow(BaseWindow):
 
 # -------------------- 设置窗口 --------------------
 class SettingsWindow(BaseWindow):
+    save_signal = Signal()  # 定义保存信号
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("设置 - CPU信息查询系统")
+        self.input_widgets = {}
         self._setup_ui()
+        self.save_signal.connect(self._save_settings)
 
     def _setup_ui(self):
         widget = QWidget()
@@ -372,30 +451,9 @@ class SettingsWindow(BaseWindow):
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
 
-        form = QWidget()
-        form_layout = QFormLayout()
-        form_layout.setLabelAlignment(Qt.AlignRight)
-        form_layout.setFormAlignment(Qt.AlignLeft)
-        form_layout.setVerticalSpacing(20)
-        self.dark_mode = QCheckBox("启用暗黑模式")
-        form_layout.addRow(self.dark_mode)
-        btn_save = QPushButton("保存并返回")
-        btn_save.setStyleSheet("""
-            QPushButton {
-                background: #0078d4;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 6px;
-                font: bold 14px "Microsoft YaHei";
-            }
-            QPushButton:hover { background: #005ba1; }
-        """)
-        btn_save.clicked.connect(self._save_settings)
-        form_layout.addRow("", btn_save)
-        form.setLayout(form_layout)
-        form.setStyleSheet("background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px;")
-        
-        layout.addWidget(form)
+        fields = {"dark_mode": {"label": "启用暗黑模式", "type": "checkbox"}}
+        create_grouped_form("设置选项", fields, layout, self.input_widgets, "保存并返回", self.save_signal.emit)
+
         layout.addStretch()
         widget.setLayout(layout)
         widget.setStyleSheet("background: #f9fafb;")
@@ -406,7 +464,7 @@ class SettingsWindow(BaseWindow):
 
     @Slot()
     def _save_settings(self):
-        print(f"暗黑模式: {self.dark_mode.isChecked()}")
+        print(f"暗黑模式: {self.input_widgets['dark_mode'].isChecked()}")
         self.manager.switch_to("main")
 
 # -------------------- 用户按钮类 --------------------
@@ -414,21 +472,9 @@ class UserButton(QPushButton):
     def __init__(self, username, parent=None):
         super().__init__(username, parent)
         self.menu = QMenu(self)
+        self.menu.setStyleSheet(STYLES["menu"])
+        self.setStyleSheet(STYLES["user_button"])
         self.setMenu(self.menu)
-        self._style_button()
-
-    def _style_button(self):
-        self.setStyleSheet("""
-            QPushButton {
-                background: #ffffff;
-                border: 1px solid #d1d5db;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font: 14px "Microsoft YaHei";
-                color: #374151;
-            }
-            QPushButton:hover { background: #f3f4f6; }
-        """)
 
     def enterEvent(self, event):
         self.showMenu()
@@ -456,2347 +502,7 @@ if __name__ == "__main__":
     
     login_win = manager.get_window("login")
     login_win.show()
-    QTimer.singleShot(50, lambda: (login_win.raise_(), login_win.activateWindow()))
+    QTimer.singleShot(50, lambda: login_win.raise_())
     manager.current_window = login_win
     
     sys.exit(app.exec())
-
-
-
-
-
-
-
-import sys
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-                               QLineEdit, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QMenu, QCheckBox)
-from PySide6.QtGui import QFont, QColor
-from PySide6.QtCore import Qt, Slot, QPropertyAnimation, QEasingCurve
-
-# -------------------- 窗口管理器 --------------------
-class WindowManager:
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(WindowManager, cls).__new__(cls)
-            cls.windows = {}  # 存储窗口实例 {'name': window}
-            cls.current_window = None  # 当前显示的窗口
-        return cls._instance
-
-    def register_window(self, name, window_class, *args, **kwargs):
-        """注册窗口类型并创建实例"""
-        if name not in self.windows:
-            self.windows[name] = window_class(*args, **kwargs)
-        return self.windows[name]
-
-    def switch_to(self, name, data=None):
-        """切换到指定窗口，带动画效果"""
-        if name in self.windows:
-            new_window = self.windows[name]
-            if self.current_window:
-                anim_out = QPropertyAnimation(self.current_window, b"windowOpacity")
-                anim_out.setDuration(300)
-                anim_out.setStartValue(1.0)
-                anim_out.setEndValue(0.0)
-                anim_out.setEasingCurve(QEasingCurve.InOutQuad)
-                anim_out.finished.connect(self.current_window.hide)
-                anim_out.start()
-            
-            if data:
-                new_window.set_data(data)
-            new_window.move(self.current_window.pos() if self.current_window else new_window.pos())
-            new_window.show()
-            anim_in = QPropertyAnimation(new_window, b"windowOpacity")
-            anim_in.setDuration(300)
-            anim_in.setStartValue(0.0)
-            anim_in.setEndValue(1.0)
-            anim_in.setEasingCurve(QEasingCurve.InOutQuad)
-            anim_in.start()
-            
-            self.current_window = new_window
-            print(f"切换到窗口: {name}")
-        else:
-            print(f"窗口 {name} 未注册")
-
-    def get_window(self, name):
-        """获取窗口实例"""
-        return self.windows.get(name)
-
-# -------------------- 窗口基类 --------------------
-class BaseWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.manager = WindowManager()
-        self.setWindowOpacity(1.0)  # 默认不透明
-
-    def set_data(self, data):
-        """接收切换时传递的数据，子类可重写"""
-        pass
-
-    def closeEvent(self, event):
-        """防止意外关闭程序"""
-        if not any(w.isVisible() for w in self.manager.windows.values()):
-            event.accept()
-        else:
-            event.ignore()
-            self.hide()
-
-# -------------------- 登录窗口 --------------------
-class LoginWindow(BaseWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("登录 - CPU信息查询系统")
-        self._setup_ui()
-
-    def _setup_ui(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-        layout.addStretch()
-
-        title = QLabel("CPU信息查询系统")
-        title.setFont(QFont("Microsoft YaHei", 24, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-
-        form = QWidget()
-        form_layout = QFormLayout()
-        self.username_input = QLineEdit()
-        self.password_input = QLineEdit()
-        self.password_input.setEchoMode(QLineEdit.Password)
-        
-        for w in [self.username_input, self.password_input]:
-            w.setFixedWidth(300)
-            w.setStyleSheet("padding: 8px; border: 2px solid #e0e0e0; border-radius: 4px;")
-
-        form_layout.addRow("用户名：", self.username_input)
-        form_layout.addRow("密码：", self.password_input)
-        form.setLayout(form_layout)
-
-        btn_login = QPushButton("登录系统")
-        btn_login.setStyleSheet("""
-            QPushButton {
-                background: #4dabf7; 
-                color: white;
-                padding: 12px;
-                border-radius: 6px;
-                font: bold 16px;
-            }
-            QPushButton:hover { background: #339af0; }
-        """)
-        btn_login.clicked.connect(self._on_login_clicked)
-
-        layout.addLayout(self._centered(form))
-        layout.addWidget(btn_login, alignment=Qt.AlignCenter)
-        layout.addStretch()
-        
-        widget.setLayout(layout)
-        self.setCentralWidget(widget)
-
-        self.setMinimumSize(1280, 720)
-        self.setMaximumSize(1280, 720)
-        flags = self.windowFlags() & ~Qt.WindowMaximizeButtonHint
-        self.setWindowFlags(flags)
-
-    @Slot()
-    def _on_login_clicked(self):
-        username = self.username_input.text()
-        password = self.password_input.text()
-        if username and password == "123456":
-            self.manager.switch_to("main", data={"username": username})
-        else:
-            print("登录失败")
-
-    def _centered(self, widget):
-        layout = QHBoxLayout()
-        layout.addStretch()
-        layout.addWidget(widget)
-        layout.addStretch()
-        return layout
-
-# -------------------- 主窗口 --------------------
-class MainWindow(BaseWindow):
-    def __init__(self):
-        super().__init__()
-        self.username = "管理员"
-        self.setWindowTitle("CPU信息查询系统")
-        self._setup_ui()
-
-    def _setup_ui(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-
-        # 顶部工具栏
-        self.header = QHBoxLayout()
-        self.header.addStretch()
-        self.btn_user = UserButton(self.username)
-        self.btn_user.menu.addAction("设置", self._open_settings)
-        self.btn_user.menu.addAction("退出", self._handle_logout)
-        self.header.addWidget(self.btn_user)
-        layout.addLayout(self.header)
-
-        # 主内容区域
-        content_layout = QHBoxLayout()
-        
-        form = QWidget()
-        form_layout = QFormLayout()
-        self.model_input = QLineEdit()
-        self.vendor_combo = QComboBox()
-        self.vendor_combo.addItems(["全部", "Intel", "AMD", "ARM"])
-        form_layout.addRow("型号名称：", self.model_input)
-        form_layout.addRow("制造商：", self.vendor_combo)
-        btn_query = QPushButton("查询")
-        btn_query.clicked.connect(self._on_query)
-        form_layout.addRow(btn_query)
-        form.setLayout(form_layout)
-        content_layout.addWidget(form)
-
-        self.table = QTableWidget()
-        self._init_table()
-        content_layout.addWidget(self.table, stretch=1)
-
-        layout.addLayout(content_layout)
-        widget.setLayout(layout)
-        self.setCentralWidget(widget)
-
-        self.resize(1280, 720)
-        self.setMinimumSize(0, 0)
-        self.setMaximumSize(16777215, 16777215)
-        flags = (Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | 
-                 Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
-        self.setWindowFlags(flags)
-
-    def set_data(self, data):
-        if "username" in data:
-            self.username = data["username"]
-            self.btn_user.setText(self.username)
-
-    def _init_table(self):
-        headers = ["型号", "制造商", "核心数", "基础频率", "TDP"]
-        self.table.setRowCount(len(headers))
-        self.table.setColumnCount(3)
-        self.table.setVerticalHeaderLabels(headers)
-        self.table.setHorizontalHeaderLabels(["数据1", "数据2", "数据3"])
-        
-        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
-        self.table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                background: white;
-            }
-            QHeaderView::section {
-                background: #f8f9fa;
-                padding: 12px;
-            }
-        """)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-
-    @Slot()
-    def _on_query(self):
-        sample_data = [
-            ["i7-12700K", "Intel", "12", "3.6GHz", "125W"],
-            ["Ryzen 9 5950X", "AMD", "16", "3.4GHz", "105W"],
-            ["Cortex-A78", "ARM", "8", "2.8GHz", "35W"]
-        ]
-        self._update_table(sample_data)
-
-    def _update_table(self, data):
-        self.table.setColumnCount(len(data))
-        self.table.setHorizontalHeaderLabels([f"数据{i+1}" for i in range(len(data))])
-        
-        for col, row_data in enumerate(data):
-            for row, value in enumerate(row_data):
-                item = QTableWidgetItem(value)
-                item.setTextAlignment(Qt.AlignCenter)
-                
-                if "Intel" in value:
-                    item.setBackground(QColor("#cce5ff"))
-                elif "AMD" in value:
-                    item.setBackground(QColor("#ffcccc"))
-                elif "ARM" in value:
-                    item.setBackground(QColor("#ccffcc"))
-                elif "GHz" in value:
-                    item.setBackground(QColor("#fff3cc"))
-                
-                self.table.setItem(row, col, item)
-
-    @Slot()
-    def _open_settings(self):
-        self.manager.switch_to("settings")
-
-    @Slot()
-    def _handle_logout(self):
-        self.manager.switch_to("login")
-
-# -------------------- 设置窗口 --------------------
-class SettingsWindow(BaseWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("设置 - CPU信息查询系统")
-        self._setup_ui()
-
-    def _setup_ui(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-
-        title = QLabel("设置")
-        title.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-
-        form = QWidget()
-        form_layout = QFormLayout()
-        self.dark_mode = QCheckBox("启用暗黑模式")
-        form_layout.addRow(self.dark_mode)
-        btn_save = QPushButton("保存并返回")
-        btn_save.clicked.connect(self._save_settings)
-        form_layout.addRow(btn_save)
-        form.setLayout(form_layout)
-
-        layout.addWidget(form)
-        layout.addStretch()
-        widget.setLayout(layout)
-        self.setCentralWidget(widget)
-
-        self.resize(800, 600)
-        self.setMinimumSize(0, 0)
-        self.setMaximumSize(16777215, 16777215)
-        flags = (Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | 
-                 Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
-        self.setWindowFlags(flags)
-
-    @Slot()
-    def _save_settings(self):
-        # 示例：保存设置并返回主窗口
-        print(f"暗黑模式: {self.dark_mode.isChecked()}")
-        self.manager.switch_to("main")
-
-# -------------------- 用户按钮类 --------------------
-class UserButton(QPushButton):
-    def __init__(self, username, parent=None):
-        super().__init__(username, parent)
-        self.menu = QMenu(self)
-        self.setMenu(self.menu)
-        self._style_button()
-
-    def _style_button(self):
-        self.setStyleSheet("""
-            QPushButton {
-                background: #f8f9fa;
-                border: 2px solid #e9ecef;
-                border-radius: 6px;
-                padding: 8px 15px;
-                min-width: 100px;
-            }
-            QPushButton:hover { background: #e9ecef; }
-        """)
-
-    def enterEvent(self, event):
-        self.showMenu()
-        super().enterEvent(event)
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setFont(QFont("Microsoft YaHei", 12))
-    
-    # 初始化窗口管理器并注册窗口
-    manager = WindowManager()
-    manager.register_window("login", LoginWindow)
-    manager.register_window("main", MainWindow)
-    manager.register_window("settings", SettingsWindow)
-    
-    # 显示初始窗口
-    manager.switch_to("login")
-    sys.exit(app.exec())
-
-
-
-
-
-
-import sys
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-                               QLineEdit, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QMenu)
-from PySide6.QtGui import QFont, QColor
-from PySide6.QtCore import Qt, Slot
-
-# 全局变量存储主窗口
-main_window = None
-
-# -------------------- 用户按钮类 --------------------
-class UserButton(QPushButton):
-    def __init__(self, username, parent=None):
-        super().__init__(username, parent)
-        self.menu = QMenu(self)
-        self.setMenu(self.menu)
-        self._style_button()
-
-    def _style_button(self):
-        self.setStyleSheet("""
-            QPushButton {
-                background: #f8f9fa;
-                border: 2px solid #e9ecef;
-                border-radius: 6px;
-                padding: 8px 15px;
-                min-width: 100px;
-            }
-            QPushButton:hover { background: #e9ecef; }
-        """)
-
-    def enterEvent(self, event):
-        self.showMenu()
-        super().enterEvent(event)
-
-# -------------------- 登录窗口 --------------------
-class LoginWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("登录 - CPU信息查询系统")
-        self._setup_ui()
-
-    def _setup_ui(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-        layout.addStretch()
-
-        title = QLabel("CPU信息查询系统")
-        title.setFont(QFont("Microsoft YaHei", 24, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-
-        form = QWidget()
-        form_layout = QFormLayout()
-        self.username_input = QLineEdit()
-        self.password_input = QLineEdit()
-        self.password_input.setEchoMode(QLineEdit.Password)
-        
-        for w in [self.username_input, self.password_input]:
-            w.setFixedWidth(300)
-            w.setStyleSheet("padding: 8px; border: 2px solid #e0e0e0; border-radius: 4px;")
-
-        form_layout.addRow("用户名：", self.username_input)
-        form_layout.addRow("密码：", self.password_input)
-        form.setLayout(form_layout)
-
-        btn_login = QPushButton("登录系统")
-        btn_login.setStyleSheet("""
-            QPushButton {
-                background: #4dabf7; 
-                color: white;
-                padding: 12px;
-                border-radius: 6px;
-                font: bold 16px;
-            }
-            QPushButton:hover { background: #339af0; }
-        """)
-        btn_login.clicked.connect(self._on_login_clicked)
-
-        layout.addLayout(self._centered(form))
-        layout.addWidget(btn_login, alignment=Qt.AlignCenter)
-        layout.addStretch()
-        
-        widget.setLayout(layout)
-        self.setCentralWidget(widget)
-
-        # 设置固定大小并禁用最大化按钮
-        self.setMinimumSize(1280, 720)
-        self.setMaximumSize(1280, 720)
-        flags = self.windowFlags() & ~Qt.WindowMaximizeButtonHint
-        self.setWindowFlags(flags)
-
-        print(f"登录窗口标志: {hex(self.windowFlags())}")
-        print(f"登录窗口最大尺寸: {self.maximumSize().width()} x {self.maximumSize().height()}")
-
-    @Slot()
-    def _on_login_clicked(self):
-        global main_window
-        username = self.username_input.text()
-        password = self.password_input.text()
-        if username and password == "123456":  # 简单验证，实际可替换为真实逻辑
-            main_window = MainWindow(username=username)  # 传递用户名
-            main_window.show()
-            self.close()
-            print(f"登录成功，用户名: {username}，切换到主窗口")
-        else:
-            print("登录失败")
-
-    def _centered(self, widget):
-        layout = QHBoxLayout()
-        layout.addStretch()
-        layout.addWidget(widget)
-        layout.addStretch()
-        return layout
-
-# -------------------- 主窗口 --------------------
-class MainWindow(QMainWindow):
-    def __init__(self, username="管理员"):
-        super().__init__()
-        self.username = username  # 存储用户名
-        self.setWindowTitle("CPU信息查询系统")
-        self._setup_ui()
-
-    def _setup_ui(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-
-        # 顶部工具栏
-        header = QHBoxLayout()
-        header.addStretch()
-        btn_user = UserButton(self.username)  # 显示用户名
-        btn_user.menu.addAction("退出", self._handle_logout)
-        header.addWidget(btn_user)
-        layout.addLayout(header)
-
-        # 主内容区域
-        content_layout = QHBoxLayout()
-        
-        # 查询条件表单（左侧）
-        form = QWidget()
-        form_layout = QFormLayout()
-        self.model_input = QLineEdit()
-        self.vendor_combo = QComboBox()
-        self.vendor_combo.addItems(["全部", "Intel", "AMD", "ARM"])
-        form_layout.addRow("型号名称：", self.model_input)
-        form_layout.addRow("制造商：", self.vendor_combo)
-        btn_query = QPushButton("查询")
-        btn_query.clicked.connect(self._on_query)
-        form_layout.addRow(btn_query)
-        form.setLayout(form_layout)
-        content_layout.addWidget(form)
-
-        # 表格（右侧，纵向显示）
-        self.table = QTableWidget()
-        self._init_table()
-        content_layout.addWidget(self.table, stretch=1)
-
-        layout.addLayout(content_layout)
-        widget.setLayout(layout)
-        self.setCentralWidget(widget)
-
-        # 设置初始大小并启用最大化
-        self.resize(1280, 720)
-        self.setMinimumSize(0, 0)
-        self.setMaximumSize(16777215, 16777215)
-        flags = (Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | 
-                 Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
-        self.setWindowFlags(flags)
-
-        print(f"主窗口标志: {hex(self.windowFlags())}")
-        print(f"主窗口最大尺寸: {self.maximumSize().width()} x {self.maximumSize().height()}")
-
-    def _init_table(self):
-        headers = ["型号", "制造商", "核心数", "基础频率", "TDP"]
-        self.table.setRowCount(len(headers))
-        self.table.setColumnCount(3)
-        self.table.setVerticalHeaderLabels(headers)
-        self.table.setHorizontalHeaderLabels(["数据1", "数据2", "数据3"])
-        
-        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
-        self.table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                background: white;
-            }
-            QHeaderView::section {
-                background: #f8f9fa;
-                padding: 12px;
-            }
-        """)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-
-    @Slot()
-    def _on_query(self):
-        sample_data = [
-            ["i7-12700K", "Intel", "12", "3.6GHz", "125W"],
-            ["Ryzen 9 5950X", "AMD", "16", "3.4GHz", "105W"],
-            ["Cortex-A78", "ARM", "8", "2.8GHz", "35W"]
-        ]
-        self._update_table(sample_data)
-
-    def _update_table(self, data):
-        self.table.setColumnCount(len(data))
-        self.table.setHorizontalHeaderLabels([f"数据{i+1}" for i in range(len(data))])
-        
-        for col, row_data in enumerate(data):
-            for row, value in enumerate(row_data):
-                item = QTableWidgetItem(value)
-                item.setTextAlignment(Qt.AlignCenter)
-                
-                if "Intel" in value:
-                    item.setBackground(QColor("#cce5ff"))
-                elif "AMD" in value:
-                    item.setBackground(QColor("#ffcccc"))
-                elif "ARM" in value:
-                    item.setBackground(QColor("#ccffcc"))
-                elif "GHz" in value:
-                    item.setBackground(QColor("#fff3cc"))
-                
-                self.table.setItem(row, col, item)
-
-    @Slot()
-    def _handle_logout(self):
-        global main_window
-        login_window = LoginWindow()
-        login_window.show()
-        self.close()
-        main_window = None
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setFont(QFont("Microsoft YaHei", 12))
-    login_window = LoginWindow()
-    login_window.show()
-    sys.exit(app.exec())
-
-
-
-
-
-
-
-import sys
-import os
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-                               QLineEdit, QPushButton, QLabel, QTabWidget, QFrame, QTableWidget, QTableWidgetItem,
-                               QComboBox, QRadioButton, QCheckBox, QScrollArea, QMessageBox, QSpacerItem, QMenu,
-                               QHeaderView, QButtonGroup)
-from PySide6.QtGui import QPalette, QColor, QFont, QIcon, QAction
-from PySide6.QtCore import Qt, QSize, QEvent, Signal, Slot, QObject
-
-# -------------------- 信号总线 --------------------
-class AppSignals(QObject):
-    login_requested = Signal(str, str)          # 登录请求
-    cpu_name_query = Signal(dict)               # CPU名称查询
-    cpu_spec_query = Signal(dict)               # CPU规格查询
-    logout_requested = Signal()                 # 退出登录
-
-# -------------------- 自定义组件 --------------------
-class QueryConditionForm(QFrame):
-    query_submitted = Signal(dict)
-
-    def __init__(self, fields, parent=None):
-        super().__init__(parent)
-        self.fields = fields
-        self._init_ui()
-        self._setup_style()
-
-    def _init_ui(self):
-        layout = QFormLayout()
-        self.input_widgets = {}
-
-        for field, config in self.fields.items():
-            widget = self._create_input_widget(config)
-            self.input_widgets[field] = widget
-            layout.addRow(QLabel(f"{config['label']}："), widget)
-
-        btn_query = QPushButton("开始查询")
-        btn_query.clicked.connect(self._on_query)
-        layout.addRow(btn_query)
-        
-        self.setLayout(layout)
-
-    def _create_input_widget(self, config):
-        widget_type = config["type"]
-        if widget_type == "text":
-            widget = QLineEdit()
-            widget.setPlaceholderText(config.get("placeholder", ""))
-        elif widget_type == "combo":
-            widget = QComboBox()
-            widget.addItems(config["items"])
-        elif widget_type == "radio":
-            widget = QWidget()
-            group = QButtonGroup(widget)
-            layout = QHBoxLayout()
-            for text in config["options"]:
-                radio = QRadioButton(text)
-                group.addButton(radio)
-                layout.addWidget(radio)
-            widget.setLayout(layout)
-            group.buttons()[0].setChecked(True)
-        elif widget_type == "check":
-            widget = QCheckBox(config.get("text", ""))
-        return widget
-
-    def _setup_style(self):
-        self.setStyleSheet("""
-            QueryConditionForm {
-                background: white;
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                padding: 15px;
-            }
-        """)
-
-    @Slot()
-    def _on_query(self):
-        conditions = {}
-        for field, widget in self.input_widgets.items():
-            if isinstance(widget, QLineEdit):
-                conditions[field] = widget.text()
-            elif isinstance(widget, QComboBox):
-                conditions[field] = widget.currentText()
-            elif isinstance(widget, QWidget):  # 处理单选按钮组
-                for radio in widget.findChildren(QRadioButton):
-                    if radio.isChecked():
-                        conditions[field] = radio.text()
-            elif isinstance(widget, QCheckBox):
-                conditions[field] = widget.isChecked()
-        self.query_submitted.emit(conditions)
-
-# -------------------- 主窗口 --------------------
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.signals = AppSignals()
-        self._init_ui()
-        self._connect_signals()
-
-    def _init_ui(self):
-        self.setWindowTitle("CPU信息查询系统")
-        self.setMinimumSize(1280, 720)
-        self._setup_login_ui()
-
-    def _connect_signals(self):
-        self.signals.login_requested.connect(self._handle_login)
-        self.signals.logout_requested.connect(self._handle_logout)
-        self.signals.cpu_name_query.connect(self._handle_cpu_name_query)
-        self.signals.cpu_spec_query.connect(self._handle_cpu_spec_query)
-
-    # -------------------- 登录模块 --------------------
-    def _setup_login_ui(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-        layout.addStretch()
-
-        title = QLabel("CPU信息查询系统")
-        title.setFont(QFont("Microsoft YaHei", 24, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-
-        form = QFrame()
-        form_layout = QFormLayout()
-        self.username_input = QLineEdit()
-        self.password_input = QLineEdit()
-        self.password_input.setEchoMode(QLineEdit.Password)
-        
-        for w in [self.username_input, self.password_input]:
-            w.setFixedWidth(300)
-            w.setStyleSheet("padding: 8px; border: 2px solid #e0e0e0; border-radius: 4px;")
-
-        form_layout.addRow("用户名：", self.username_input)
-        form_layout.addRow("密码：", self.password_input)
-        form.setLayout(form_layout)
-
-        btn_login = QPushButton("登录系统")
-        btn_login.setStyleSheet("""
-            QPushButton {
-                background: #4dabf7; 
-                color: white;
-                padding: 12px;
-                border-radius: 6px;
-                font: bold 16px;
-            }
-            QPushButton:hover { background: #339af0; }
-        """)
-        btn_login.clicked.connect(self._on_login_clicked)
-
-        layout.addLayout(self._centered(form))
-        layout.addWidget(btn_login, alignment=Qt.AlignCenter)
-        layout.addStretch()
-        
-        widget.setLayout(layout)
-        self.setCentralWidget(widget)
-
-    @Slot()
-    def _on_login_clicked(self):
-        username = self.username_input.text()
-        password = self.password_input.text()
-        self.signals.login_requested.emit(username, password)
-
-    @Slot(str, str)
-    def _handle_login(self, username, password):
-        # 实际项目需在此处添加验证逻辑
-        if username == "admin" and password == "123456":
-            self._show_main_interface()
-        else:
-            QMessageBox.critical(self, "登录失败", "用户名或密码错误")
-
-    # -------------------- 主界面模块 --------------------
-    def _show_main_interface(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-
-        # 顶部工具栏
-        header = QHBoxLayout()
-        header.addStretch()
-        btn_user = UserButton("管理员")
-        btn_user.menu.addAction("退出登录", self.signals.logout_requested.emit)
-        header.addWidget(btn_user)
-        layout.addLayout(header)
-
-        # 标签页
-        self.tab_widget = QTabWidget()
-        self._setup_query_tabs()
-        layout.addWidget(self.tab_widget)
-
-        widget.setLayout(layout)
-        self.setCentralWidget(widget)
-
-    def _setup_query_tabs(self):
-        # CPU名称查询页
-        name_tab = QWidget()
-        name_layout = QHBoxLayout()
-        self.name_query_form = QueryConditionForm({
-            "model": {"label": "型号名称", "type": "text", "placeholder": "输入型号关键字"},
-            "vendor": {"label": "制造商", "type": "combo", "items": ["全部", "Intel", "AMD", "ARM"]},
-            "overclock": {"label": "支持超频", "type": "radio", "options": ["全部", "是", "否"]}
-        })
-        self.name_query_form.query_submitted.connect(self.signals.cpu_name_query)
-        
-        self.name_table = QTableWidget()
-        self._init_table(self.name_table)
-        
-        name_layout.addWidget(self.name_query_form)
-        name_layout.addWidget(self.name_table, stretch=1)
-        name_tab.setLayout(name_layout)
-
-        # 规格参数查询页
-        spec_tab = QWidget()
-        spec_layout = QHBoxLayout()
-        self.spec_query_form = QueryConditionForm({
-            "cores": {"label": "核心数", "type": "text", "placeholder": "输入最小核心数"},
-            "threads": {"label": "线程数", "type": "text", "placeholder": "输入最小线程数"},
-            "tdp": {"label": "最大TDP", "type": "combo", "items": ["全部", "35W", "65W", "95W"]}
-        })
-        self.spec_query_form.query_submitted.connect(self.signals.cpu_spec_query)
-        
-        self.spec_table = QTableWidget()
-        self._init_table(self.spec_table)
-        
-        spec_layout.addWidget(self.spec_query_form)
-        spec_layout.addWidget(self.spec_table, stretch=1)
-        spec_tab.setLayout(spec_layout)
-
-        self.tab_widget.addTab(name_tab, "型号查询")
-        self.tab_widget.addTab(spec_tab, "规格查询")
-
-    def _init_table(self, table):
-        table.setColumnCount(5)
-        table.setHorizontalHeaderLabels(["型号", "制造商", "核心数", "基础频率", "TDP"])
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                background: white;
-            }
-            QHeaderView::section { 
-                background: #f8f9fa;
-                padding: 12px;
-            }
-        """)
-
-    # -------------------- 业务逻辑 --------------------
-    @Slot(dict)
-    def _handle_cpu_name_query(self, conditions):
-        # 这里应连接实际的数据查询逻辑
-        sample_data = [
-            ["i7-12700K", "Intel", "12", "3.6GHz", "125W"],
-            ["Ryzen 9 5950X", "AMD", "16", "3.4GHz", "105W"]
-        ]
-        self._update_table(self.name_table, sample_data)
-
-    @Slot(dict)
-    def _handle_cpu_spec_query(self, conditions):
-        # 这里应连接实际的数据查询逻辑
-        sample_data = [
-            ["i5-12600K", "Intel", "10", "3.7GHz", "125W"],
-            ["Ryzen 7 5800X", "AMD", "8", "3.8GHz", "105W"]
-        ]
-        self._update_table(self.spec_table, sample_data)
-
-    def _update_table(self, table, data):
-        table.setRowCount(len(data))
-        for row_idx, row_data in enumerate(data):
-            for col_idx, value in enumerate(row_data):
-                item = QTableWidgetItem(str(value))
-                item.setTextAlignment(Qt.AlignCenter)
-                table.setItem(row_idx, col_idx, item)
-
-    @Slot()
-    def _handle_logout(self):
-        self._setup_login_ui()
-
-    # -------------------- 工具方法 --------------------
-    def _centered(self, widget):
-        layout = QHBoxLayout()
-        layout.addStretch()
-        layout.addWidget(widget)
-        layout.addStretch()
-        return layout
-
-class UserButton(QPushButton):
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self.menu = QMenu(self)
-        self.setMenu(self.menu)
-        self._style_button()
-
-    def _style_button(self):
-        self.setStyleSheet("""
-            QPushButton {
-                background: #f8f9fa;
-                border: 2px solid #e9ecef;
-                border-radius: 6px;
-                padding: 8px 15px;
-                min-width: 100px;
-            }
-            QPushButton:hover { background: #e9ecef; }
-        """)
-
-    def enterEvent(self, event):
-        self.showMenu()
-        super().enterEvent(event)
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setFont(QFont("Microsoft YaHei", 12))
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
-
-
-# 在文件头部新增导入
-from PySide6.QtWidgets import QToolButton
-from PySide6.QtGui import QAction
-
-# 替换原有的 UserButton 类
-class UserProfileWidget(QToolButton):
-    def __init__(self, username, parent=None):
-        super().__init__(parent)
-        self.setPopupMode(QToolButton.InstantPopup)
-        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.setArrowType(Qt.NoArrow)
-        self.setFocusPolicy(Qt.NoFocus)
-        
-        # 主按钮样式
-        self.setText(username)
-        self.setIcon(QIcon("user_icon.png"))  # 准备一个 24x24 的用户图标
-        self.setIconSize(QSize(24, 24))
-        
-        # 创建菜单
-        self.menu = QMenu(self)
-        self.menu.aboutToShow.connect(self.adjust_menu_position)
-        
-        # 菜单项
-        self.profile_action = QAction(QIcon("profile_icon.png"), "个人资料", self)
-        self.settings_action = QAction(QIcon("settings_icon.png"), "设置", self)
-        self.logout_action = QAction(QIcon("logout_icon.png"), "退出登录", self)
-        
-        # 添加菜单项
-        self.menu.addAction(self.profile_action)
-        self.menu.addSeparator()
-        self.menu.addAction(self.settings_action)
-        self.menu.addAction(self.logout_action)
-        
-        # 信号连接
-        self.logout_action.triggered.connect(parent.logout)
-        self.settings_action.triggered.connect(lambda: QMessageBox.information(parent, "设置", "设置功能待开发"))
-        
-        self.setMenu(self.menu)
-        
-        # 样式设置
-        self.setStyleSheet("""
-            QToolButton {
-                background-color: #e9ecef;
-                color: #212529;
-                border: 1px solid #ced4da;
-                border-radius: 8px;
-                padding: 8px 16px;
-                font: bold 14px;
-                min-width: 120px;
-                text-align: left;
-            }
-            QToolButton::menu-indicator {
-                image: none;
-                subcontrol-position: right center;
-                padding-right: 20px;
-            }
-            QToolButton:hover {
-                background-color: #dee2e6;
-            }
-            QToolButton:pressed {
-                background-color: #ced4da;
-            }
-        """)
-        
-        # 添加下拉箭头伪元素
-        self.setStyleSheet(self.styleSheet() + """
-            QToolButton::after {
-                content: "▼";
-                position: absolute;
-                right: 12px;
-                top: 50%;
-                transform: translateY(-50%);
-                font-size: 10px;
-                color: #6c757d;
-            }
-        """)
-    
-    def adjust_menu_position(self):
-        # 确保菜单在按钮下方居中显示
-        menu_width = self.menu.sizeHint().width()
-        button_width = self.width()
-        x_offset = (button_width - menu_width) // 2
-        self.menu.exec(self.mapToGlobal(self.rect().bottomLeft() + QPoint(x_offset, 5)))
-
-# 在 QueryClientApp 的 show_main_window 方法中替换用户按钮部分
-def show_main_window(self):
-    # ... 其他代码不变 ...
-    
-    # 用户信息（右上角）
-    user_frame = QFrame()
-    user_layout = QHBoxLayout()
-    user_layout.setContentsMargins(0, 0, 20, 0)  # 右侧留出边距
-    
-    self.user_profile = UserProfileWidget(self.current_user, self)
-    
-    user_layout.addStretch()
-    user_layout.addWidget(self.user_profile)
-    user_frame.setLayout(user_layout)
-    layout.addWidget(user_frame)
-    
-    # ... 后续代码不变 ...
-
-
-import sys
-import os
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-                               QLineEdit, QPushButton, QLabel, QTabWidget, QFrame, QTableWidget, QTableWidgetItem,
-                               QComboBox, QRadioButton, QCheckBox, QScrollArea, QMessageBox, QSpacerItem, 
-                               QToolButton, QMenu)
-from PySide6.QtGui import QPalette, QColor, QFont, QIcon, QAction
-from PySide6.QtCore import Qt, QSize, QPoint, Signal
-
-class UserProfileWidget(QToolButton):
-    # 自定义信号
-    logoutRequested = Signal()
-    showAbout = Signal()
-    showSettings = Signal()
-
-    def __init__(self, username, parent=None):
-        super().__init__(parent)
-        self.setup_ui(username)
-
-    def setup_ui(self, username):
-        self.setPopupMode(QToolButton.InstantPopup)
-        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.setArrowType(Qt.NoArrow)
-        self.setFocusPolicy(Qt.NoFocus)
-
-        # 主按钮设置
-        self.setText(username)
-        if os.path.exists("user_icon.png"):
-            self.setIcon(QIcon("user_icon.png"))
-        self.setIconSize(QSize(24, 24))
-
-        # 初始化菜单
-        self.init_menu()
-        self.set_style()
-
-    def init_menu(self):
-        # 创建菜单项
-        self.menu = QMenu(self)
-        
-        # 个人资料
-        profile_action = QAction("个人资料", self)
-        if os.path.exists("profile_icon.png"):
-            profile_action.setIcon(QIcon("profile_icon.png"))
-        
-        # 设置
-        settings_action = QAction("设置", self)
-        settings_action.triggered.connect(self.showSettings.emit)
-        if os.path.exists("settings_icon.png"):
-            settings_action.setIcon(QIcon("settings_icon.png"))
-        
-        # 关于
-        about_action = QAction("关于", self)
-        about_action.triggered.connect(self.showAbout.emit)
-        if os.path.exists("about_icon.png"):
-            about_action.setIcon(QIcon("about_icon.png"))
-        
-        # 退出登录
-        logout_action = QAction("退出登录", self)
-        logout_action.triggered.connect(self.logoutRequested.emit)
-        if os.path.exists("logout_icon.png"):
-            logout_action.setIcon(QIcon("logout_icon.png"))
-
-        # 添加菜单项
-        self.menu.addAction(profile_action)
-        self.menu.addSeparator()
-        self.menu.addAction(settings_action)
-        self.menu.addAction(about_action)
-        self.menu.addSeparator()
-        self.menu.addAction(logout_action)
-
-        self.setMenu(self.menu)
-
-    def set_style(self):
-        self.setStyleSheet("""
-            QToolButton {
-                background-color: #e9ecef;
-                color: #212529;
-                border: 1px solid #ced4da;
-                border-radius: 8px;
-                padding: 8px 16px;
-                font: bold 14px;
-                min-width: 120px;
-                text-align: left;
-                spacing: 8px;
-            }
-            QToolButton:hover {
-                background-color: #dee2e6;
-            }
-            QToolButton:pressed {
-                background-color: #ced4da;
-            }
-            QToolButton::menu-indicator {
-                image: none;
-                width: 0;
-            }
-            QToolButton::after {
-                content: "▼";
-                position: absolute;
-                right: 12px;
-                top: 50%;
-                transform: translateY(-50%);
-                font-size: 10px;
-                color: #6c757d;
-            }
-        """)
-
-class QueryClientApp(QMainWindow):
-    loginSuccess = Signal(str)  # 登录成功信号
-
-    def __init__(self):
-        super().__init__()
-        self.setup_main_window()
-        self.init_signals()
-        self.show_login()
-
-    def setup_main_window(self):
-        self.setWindowTitle("信息查询客户端")
-        self.setFixedSize(400, 300)
-        if os.path.exists("custom.png"):
-            self.setWindowIcon(QIcon("custom.png"))
-
-    def init_signals(self):
-        self.loginSuccess.connect(self.show_main_window)
-
-    def show_login(self):
-        login_widget = QWidget()
-        layout = QVBoxLayout()
-
-        # 登录界面组件
-        layout.addStretch()
-        title = QLabel("信息查询系统")
-        title.setFont(QFont("Helvetica", 20, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-
-        # 表单布局
-        form_frame = QFrame()
-        form_layout = QFormLayout()
-        self.username_entry = QLineEdit()
-        self.password_entry = QLineEdit()
-        self.password_entry.setEchoMode(QLineEdit.Password)
-        form_layout.addRow("用户名:", self.username_entry)
-        form_layout.addRow("密码:", self.password_entry)
-        form_frame.setLayout(form_layout)
-
-        # 登录按钮
-        login_btn = QPushButton("登录")
-        login_btn.clicked.connect(self.attempt_login)
-        layout.addSpacing(20)
-        layout.addWidget(login_btn, alignment=Qt.AlignCenter)
-        layout.addStretch()
-
-        login_widget.setLayout(layout)
-        self.setCentralWidget(login_widget)
-
-    def attempt_login(self):
-        username = self.username_entry.text()
-        password = self.password_entry.text()
-        if username and password:
-            self.loginSuccess.emit(username)
-        else:
-            QMessageBox.critical(self, "错误", "请输入用户名和密码")
-
-    def show_main_window(self, username):
-        self.current_user = username
-        self.setFixedSize(900, 600)
-        
-        main_widget = QWidget()
-        layout = QVBoxLayout()
-
-        # 用户信息栏
-        user_bar = QFrame()
-        user_layout = QHBoxLayout()
-        self.user_profile = UserProfileWidget(username)
-        self.user_profile.logoutRequested.connect(self.logout)
-        self.user_profile.showAbout.connect(self.show_about)
-        self.user_profile.showSettings.connect(self.show_settings)
-        user_layout.addStretch()
-        user_layout.addWidget(self.user_profile)
-        user_bar.setLayout(user_layout)
-        layout.addWidget(user_bar)
-
-        # 主内容区
-        self.tabs = QTabWidget()
-        self.tabs.currentChanged.connect(self.tab_changed)
-        self.init_tabs()
-        layout.addWidget(self.tabs)
-
-        main_widget.setLayout(layout)
-        self.setCentralWidget(main_widget)
-
-    def init_tabs(self):
-        # 初始化两个标签页
-        self.tab1 = QWidget()
-        self.tab2 = QWidget()
-        self.tabs.addTab(self.create_query_tab({
-            "CPU型号": "entry",
-            "制造商": "combo",
-            "是否超频": "radio",
-            "包含参数": "check"
-        }, ["型号", "制造商", "核心数", "频率"]), "CPU名称查询")
-        self.tabs.addTab(self.create_query_tab({
-            "核心数": "entry",
-            "线程数": "entry",
-            "制程": "combo",
-            "是否支持超线程": "radio"
-        }, ["核心数", "线程数", "缓存", "TDP"]), "CPU规格查询")
-
-    def create_query_tab(self, fields, headers):
-        tab = QWidget()
-        layout = QHBoxLayout()
-
-        # 左侧表单
-        form_scroll = QScrollArea()
-        form_frame = QFrame()
-        form_layout = QFormLayout()
-        for field, ftype in fields.items():
-            if ftype == "entry":
-                widget = QLineEdit()
-            elif ftype == "combo":
-                widget = QComboBox()
-                widget.addItems(["选项1", "选项2", "选项3"])
-            elif ftype == "radio":
-                widget = QWidget()
-                radio_layout = QHBoxLayout()
-                radio_layout.addWidget(QRadioButton("是"))
-                radio_layout.addWidget(QRadioButton("否"))
-                widget.setLayout(radio_layout)
-            elif ftype == "check":
-                widget = QCheckBox("启用")
-            form_layout.addRow(f"{field}:", widget)
-        
-        # 查询按钮
-        search_btn = QPushButton("查询")
-        search_btn.clicked.connect(lambda: self.perform_search(headers))
-        form_layout.addRow(search_btn)
-        
-        form_frame.setLayout(form_layout)
-        form_scroll.setWidget(form_frame)
-        form_scroll.setFixedWidth(250)
-        layout.addWidget(form_scroll)
-
-        # 右侧表格
-        self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["序号"] + headers)
-        layout.addWidget(self.table)
-
-        tab.setLayout(layout)
-        return tab
-
-    def perform_search(self, headers):
-        # 模拟数据查询
-        sample_data = [
-            [f"示例{i+1}", "Intel", f"{4+i}", f"{3.2+i*0.2}GHz"]
-            for i in range(5)
-        ]
-        self.table.setRowCount(len(sample_data))
-        for row, data in enumerate(sample_data):
-            self.table.setItem(row, 0, QTableWidgetItem(str(row+1)))
-            for col, value in enumerate(data):
-                self.table.setItem(row, col+1, QTableWidgetItem(str(value)))
-
-    def tab_changed(self, index):
-        print(f"切换到标签页: {index+1}")
-
-    def show_about(self):
-        QMessageBox.information(self, "关于", "信息查询系统 v2.0\n© 2024 xAI")
-
-    def show_settings(self):
-        QMessageBox.information(self, "设置", "系统设置功能开发中")
-
-    def logout(self):
-        self.current_user = None
-        self.show_login()
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-    
-    # 全局样式
-    palette = QPalette()
-    palette.setColor(QPalette.Window, QColor(248, 249, 250))
-    palette.setColor(QPalette.WindowText, QColor(33, 37, 41))
-    app.setPalette(palette)
-    
-    window = QueryClientApp()
-    window.show()
-    sys.exit(app.exec())
-
-
-# 在文件头部新增导入
-from PySide6.QtWidgets import QToolButton
-from PySide6.QtGui import QAction
-
-# 替换原有的 UserButton 类
-class UserProfileWidget(QToolButton):
-    def __init__(self, username, parent=None):
-        super().__init__(parent)
-        self.setPopupMode(QToolButton.InstantPopup)
-        self.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.setArrowType(Qt.NoArrow)
-        self.setFocusPolicy(Qt.NoFocus)
-        
-        # 主按钮样式
-        self.setText(username)
-        self.setIcon(QIcon("user_icon.png"))  # 准备一个 24x24 的用户图标
-        self.setIconSize(QSize(24, 24))
-        
-        # 创建菜单
-        self.menu = QMenu(self)
-        self.menu.aboutToShow.connect(self.adjust_menu_position)
-        
-        # 菜单项
-        self.profile_action = QAction(QIcon("profile_icon.png"), "个人资料", self)
-        self.settings_action = QAction(QIcon("settings_icon.png"), "设置", self)
-        self.logout_action = QAction(QIcon("logout_icon.png"), "退出登录", self)
-        
-        # 添加菜单项
-        self.menu.addAction(self.profile_action)
-        self.menu.addSeparator()
-        self.menu.addAction(self.settings_action)
-        self.menu.addAction(self.logout_action)
-        
-        # 信号连接
-        self.logout_action.triggered.connect(parent.logout)
-        self.settings_action.triggered.connect(lambda: QMessageBox.information(parent, "设置", "设置功能待开发"))
-        
-        self.setMenu(self.menu)
-        
-        # 样式设置
-        self.setStyleSheet("""
-            QToolButton {
-                background-color: #e9ecef;
-                color: #212529;
-                border: 1px solid #ced4da;
-                border-radius: 8px;
-                padding: 8px 16px;
-                font: bold 14px;
-                min-width: 120px;
-                text-align: left;
-            }
-            QToolButton::menu-indicator {
-                image: none;
-                subcontrol-position: right center;
-                padding-right: 20px;
-            }
-            QToolButton:hover {
-                background-color: #dee2e6;
-            }
-            QToolButton:pressed {
-                background-color: #ced4da;
-            }
-        """)
-        
-        # 添加下拉箭头伪元素
-        self.setStyleSheet(self.styleSheet() + """
-            QToolButton::after {
-                content: "▼";
-                position: absolute;
-                right: 12px;
-                top: 50%;
-                transform: translateY(-50%);
-                font-size: 10px;
-                color: #6c757d;
-            }
-        """)
-    
-    def adjust_menu_position(self):
-        # 确保菜单在按钮下方居中显示
-        menu_width = self.menu.sizeHint().width()
-        button_width = self.width()
-        x_offset = (button_width - menu_width) // 2
-        self.menu.exec(self.mapToGlobal(self.rect().bottomLeft() + QPoint(x_offset, 5)))
-
-# 在 QueryClientApp 的 show_main_window 方法中替换用户按钮部分
-def show_main_window(self):
-    # ... 其他代码不变 ...
-    
-    # 用户信息（右上角）
-    user_frame = QFrame()
-    user_layout = QHBoxLayout()
-    user_layout.setContentsMargins(0, 0, 20, 0)  # 右侧留出边距
-    
-    self.user_profile = UserProfileWidget(self.current_user, self)
-    
-    user_layout.addStretch()
-    user_layout.addWidget(self.user_profile)
-    user_frame.setLayout(user_layout)
-    layout.addWidget(user_frame)
-    
-    # ... 后续代码不变 ...
-
-
-
-import sys
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-                               QLineEdit, QPushButton, QLabel, QTabWidget, QFrame, QTableWidget, QTableWidgetItem,
-                               QComboBox, QRadioButton, QCheckBox, QScrollArea, QMessageBox, QSpacerItem, QMenu)
-from PySide6.QtGui import QPalette, QColor, QFont, QIcon
-from PySide6.QtCore import Qt, QSize, QEvent
-
-# 自定义按钮类，支持悬浮和点击弹出菜单
-class UserButton(QPushButton):
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self.menu = QMenu(self)
-        self.menu.setStyleSheet("""
-            QMenu {
-                border: 1px solid #ced4da;
-                border-radius: 5px;
-                background-color: #ffffff;
-                padding: 5px;
-                box-shadow: 2px 2px 10px #d1d9e6;
-            }
-            QMenu::item {
-                padding: 5px 20px;
-                color: #212529;
-            }
-            QMenu::item:selected {
-                background-color: #007bff;
-                color: white;
-            }
-            QMenu::separator {
-                height: 1px;
-                background: #ced4da;
-                margin: 5px 0;
-            }
-        """)
-        self.setMenu(self.menu)
-
-    def enterEvent(self, event):
-        # 鼠标悬浮时弹出菜单
-        self.showMenu()
-        super().enterEvent(event)
-
-class QueryClientApp(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("信息查询客户端")
-        self.setFixedSize(400, 300)
-        
-        # 设置图标
-        if os.path.exists("custom.png"):
-            self.setWindowIcon(QIcon("custom.png"))
-        
-        self.current_user = None
-        self.setup_login_window()
-        
-    def setup_login_window(self):
-        login_widget = QWidget()
-        layout = QVBoxLayout()
-        
-        # 添加顶部填充以垂直居中
-        layout.addStretch()
-        
-        # 标题
-        title = QLabel("信息查询系统")
-        title.setFont(QFont("Helvetica", 20, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("color: #343a40;")
-        layout.addWidget(title)
-        
-        # 用户名和密码布局，使用 QFormLayout 上下对齐，外层 QHBoxLayout 水平居中
-        form_frame = QFrame()
-        form_layout = QFormLayout()
-        form_layout.setSpacing(15)
-        form_layout.setLabelAlignment(Qt.AlignRight)
-        
-        self.username_entry = QLineEdit()
-        self.username_entry.setFixedWidth(200)
-        self.username_entry.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #ced4da;
-                border-radius: 5px;
-                padding: 5px;
-                background-color: #ffffff;
-                box-shadow: 2px 2px 5px #d1d9e6 inset;
-            }
-            QLineEdit:focus {
-                border: 1px solid #007bff;
-            }
-        """)
-        form_layout.addRow("用户名:", self.username_entry)
-        
-        self.password_entry = QLineEdit()
-        self.password_entry.setEchoMode(QLineEdit.Password)
-        self.password_entry.setFixedWidth(200)
-        self.password_entry.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #ced4da;
-                border-radius: 5px;
-                padding: 5px;
-                background-color: #ffffff;
-                box-shadow: 2px 2px 5px #d1d9e6 inset;
-            }
-            QLineEdit:focus {
-                border: 1px solid #007bff;
-            }
-        """)
-        form_layout.addRow("密码:", self.password_entry)
-        
-        form_frame.setLayout(form_layout)
-        
-        # 水平居中
-        form_hbox = QHBoxLayout()
-        form_hbox.addStretch()
-        form_hbox.addWidget(form_frame)
-        form_hbox.addStretch()
-        layout.addLayout(form_hbox)
-        
-        # 添加固定间距，增大按钮与密码行的距离
-        layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Fixed))
-        
-        # 登录按钮
-        login_button = QPushButton("登录")
-        login_button.setFixedWidth(150)
-        login_button.setStyleSheet("""
-            QPushButton {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #4dabf7, stop:1 #339af0);
-                color: white;
-                border-radius: 5px;
-                padding: 8px;
-                font-size: 14px;
-                box-shadow: 2px 2px 5px #b8c1cc;
-            }
-            QPushButton:hover {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #339af0, stop:1 #228be6);
-            }
-        """)
-        login_button.clicked.connect(self.login)
-        layout.addWidget(login_button, alignment=Qt.AlignHCenter)
-        
-        # 添加底部填充以垂直居中
-        layout.addStretch()
-        
-        login_widget.setLayout(layout)
-        self.setCentralWidget(login_widget)
-        
-    def login(self):
-        username = self.username_entry.text()
-        password = self.password_entry.text()
-        if username and password:
-            self.current_user = username
-            self.show_main_window()
-        else:
-            QMessageBox.critical(self, "登录失败", "请输入用户名和密码")
-            
-    def show_main_window(self):
-        self.setFixedSize(900, 600)
-        
-        main_widget = QWidget()
-        layout = QVBoxLayout()
-        
-        # 用户信息（右上角使用 UserButton）
-        user_frame = QFrame()
-        user_layout = QHBoxLayout()
-        
-        self.user_button = UserButton(self.current_user, self)
-        self.user_button.setStyleSheet("""
-            QPushButton {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #e9ecef, stop:1 #d3d7db);
-                color: #212529;
-                border: 1px solid #ced4da;
-                border-radius: 8px;
-                padding: 5px 15px;
-                font-size: 14px;
-                font-weight: bold;
-                box-shadow: 2px 2px 5px #b8c1cc;
-            }
-            QPushButton:hover {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #cce5ff, stop:1 #a3cfff);
-            }
-        """)
-        self.user_button.setFixedWidth(150)
-        
-        # 添加菜单项
-        self.user_button.menu.addAction("退出登录", self.logout)
-        self.user_button.menu.addSeparator()
-        self.user_button.menu.addAction("关于我们", lambda: QMessageBox.information(self, "关于我们", "信息查询客户端 v1.0\n开发团队: xAI"))
-        self.user_button.menu.addAction("设置", lambda: QMessageBox.information(self, "设置", "设置功能待开发"))
-        
-        user_layout.addStretch()
-        user_layout.addWidget(self.user_button)
-        user_frame.setLayout(user_layout)
-        layout.addWidget(user_frame)
-        
-        # Tab 切换
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 0px;
-            }
-            QTabBar::tab {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #e9ecef, stop:1 #d3d7db);
-                color: #212529;
-                padding: 10px 20px;
-                font: bold 12px;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #007bff, stop:1 #0056b3);
-                color: white;
-            }
-            QTabBar::tab:hover:!selected {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #cce5ff, stop:1 #a3cfff);
-            }
-        """)
-        self.tabs.addTab(QWidget(), "CPU名称查询")
-        self.tabs.addTab(QWidget(), "CPU规格参数查询")
-        self.tabs.currentChanged.connect(self.on_tab_changed)
-        layout.addWidget(self.tabs)
-        
-        # 内容区域
-        self.content_widget = QWidget()
-        self.content_layout = QHBoxLayout()
-        self.content_widget.setLayout(self.content_layout)
-        layout.addWidget(self.content_widget, stretch=1)
-        
-        main_widget.setLayout(layout)
-        self.setCentralWidget(main_widget)
-        
-        self.show_cpu_name_query()
-        
-        # 设置全局样式
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #f8f9fa;
-            }
-        """)
-        
-    def on_tab_changed(self, index):
-        if index == 0:
-            self.show_cpu_name_query()
-        elif index == 1:
-            self.show_cpu_spec_query()
-
-    def create_query_page(self, fields, table_headers):
-        for i in reversed(range(self.content_layout.count())):
-            self.content_layout.itemAt(i).widget().setParent(None)
-        
-        # 左侧搜索
-        search_inner_frame = QFrame()
-        search_inner_frame.setStyleSheet("""
-            QFrame {
-                border: 1px solid #ced4da;
-                border-radius: 8px;
-                background-color: #ffffff;
-                box-shadow: 2px 2px 10px #d1d9e6;
-            }
-        """)
-        search_layout = QFormLayout()
-        search_layout.setSpacing(10)
-        search_layout.setContentsMargins(10, 10, 10, 10)
-        
-        for field, field_type in fields.items():
-            if field_type == "entry":
-                entry = QLineEdit()
-                entry.setStyleSheet("""
-                    QLineEdit {
-                        border: 1px solid #ced4da;
-                        border-radius: 5px;
-                        padding: 5px;
-                        background-color: #f8f9fa;
-                    }
-                    QLineEdit:focus {
-                        border: 1px solid #007bff;
-                    }
-                """)
-                search_layout.addRow(f"{field}:", entry)
-            elif field_type == "combo":
-                combo = QComboBox()
-                combo.addItems(["选项1", "选项2", "选项3"])
-                combo.setStyleSheet("""
-                    QComboBox {
-                        border: 1px solid #ced4da;
-                        border-radius: 5px;
-                        padding: 5px;
-                        background-color: #f8f9fa;
-                    }
-                    QComboBox::drop-down {
-                        border-left: 1px solid #ced4da;
-                    }
-                """)
-                search_layout.addRow(f"{field}:", combo)
-            elif field_type == "radio":
-                radio_frame = QFrame()
-                radio_layout = QHBoxLayout()
-                radio_yes = QRadioButton("是")
-                radio_no = QRadioButton("否")
-                radio_layout.addWidget(radio_yes)
-                radio_layout.addWidget(radio_no)
-                radio_frame.setLayout(radio_layout)
-                search_layout.addRow(f"{field}:", radio_frame)
-            elif field_type == "check":
-                check = QCheckBox("启用")
-                check.setStyleSheet("color: #495057;")
-                search_layout.addRow(f"{field}:", check)
-        
-        search_button = QPushButton("查询")
-        search_button.setStyleSheet("""
-            QPushButton {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #28a745, stop:1 #218838);
-                color: white;
-                border-radius: 5px;
-                padding: 8px;
-                font-size: 14px;
-                box-shadow: 2px 2px 5px #b8c1cc;
-            }
-            QPushButton:hover {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #218838, stop:1 #1e7e34);
-            }
-        """)
-        search_button.clicked.connect(self.perform_search)
-        search_layout.addRow(search_button)
-        
-        search_inner_frame.setLayout(search_layout)
-        
-        scroll = QScrollArea()
-        scroll.setWidget(search_inner_frame)
-        scroll.setWidgetResizable(True)
-        scroll.setFixedWidth(250)
-        scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background: #e9ecef;
-                width: 10px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #adb5bd;
-                border-radius: 5px;
-            }
-        """)
-        self.content_layout.addWidget(scroll)
-        
-        # 右侧表格
-        self.table = QTableWidget()
-        self.table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #ced4da;
-                border-radius: 8px;
-                background-color: #ffffff;
-                box-shadow: 2px 2px 10px #d1d9e6;
-            }
-            QTableWidget::item {
-                border: 1px solid #ced4da;
-                padding: 5px;
-            }
-            QHeaderView::section {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #e9ecef, stop:1 #d3d7db);
-                border: 1px solid #ced4da;
-                padding: 5px;
-                font-weight: bold;
-                color: #212529;
-            }
-            QScrollBar:vertical, QScrollBar:horizontal {
-                border: none;
-                background: #e9ecef;
-                width: 10px;
-                height: 10px;
-                margin: 0px;
-            }
-            QScrollBar::handle {
-                background: #adb5bd;
-                border-radius: 5px;
-            }
-        """)
-        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.table.verticalHeader().setVisible(False)
-        self.content_layout.addWidget(self.table, stretch=1)
-        
-        self.table_headers = table_headers
-        
-    def perform_search(self):
-        sample_data = [
-            ["示例1", "Intel", "4", "3.2GHz", "A", "B", "C", "D"],
-            ["示例2", "AMD", "6", "3.8GHz", "E", "F", "G", "H"],
-            ["示例3", "Intel", "8", "4.0GHz", "I", "J", "K", "L"]
-        ]
-        
-        print("Sample data:", sample_data)
-        print("Table headers:", self.table_headers)
-        
-        if sample_data and len(sample_data) > 0:
-            headers = ["属性"] + [f"数据{i+1}" for i in range(len(sample_data))]
-            self.table.setColumnCount(len(headers))
-            self.table.setRowCount(len(self.table_headers))
-            self.table.setHorizontalHeaderLabels(headers)
-            
-            for row_idx in range(len(self.table_headers)):
-                values = [self.table_headers[row_idx]] + [sample_data[col_idx][row_idx] for col_idx in range(len(sample_data))]
-                print(f"Row {row_idx} values inserted:", values)
-                
-                for col_idx, val in enumerate(values):
-                    item = QTableWidgetItem(val)
-                    item.setTextAlignment(Qt.AlignCenter)
-                    if row_idx % 2 == 0:
-                        item.setBackground(QColor("#f0f0f0"))
-                    else:
-                        item.setBackground(QColor("#ffffff"))
-                    if row_idx == 0 and col_idx > 1 and val != values[1]:
-                        item.setBackground(QColor("#ffcccc"))
-                    elif col_idx > 0 and values[1:].count(val) < len(values[1:]):
-                        item.setForeground(QColor("red"))
-                    self.table.setItem(row_idx, col_idx, item)
-            
-            self.table.resizeColumnsToContents()
-            self.table.resizeRowsToContents()
-            print("Table items inserted:", self.table.rowCount(), "rows,", self.table.columnCount(), "columns")
-        else:
-            print("No data to display")
-            self.table.setRowCount(0)
-            self.table.setColumnCount(0)
-        
-    def show_cpu_name_query(self):
-        fields = {
-            "CPU型号": "entry",
-            "制造商": "combo",
-            "是否超频": "radio",
-            "包含参数": "check"
-        }
-        headers = ["型号", "制造商", "核心数", "频率", "额外1", "额外2", "额外3", "额外4"]
-        self.create_query_page(fields, headers)
-        
-    def show_cpu_spec_query(self):
-        fields = {
-            "核心数": "entry",
-            "线程数": "entry",
-            "制程": "combo",
-            "是否支持超线程": "radio"
-        }
-        headers = ["核心数", "线程数", "缓存", "TDP", "额外1", "额外2", "额外3", "额外4"]
-        self.create_query_page(fields, headers)
-        
-    def logout(self):
-        self.current_user = None
-        self.setup_login_window()
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-    palette = QPalette()
-    palette.setColor(QPalette.Window, QColor("#f8f9fa"))
-    palette.setColor(QPalette.WindowText, QColor("#212529"))
-    palette.setColor(QPalette.Button, QColor("#007bff"))
-    palette.setColor(QPalette.ButtonText, QColor("#ffffff"))
-    app.setPalette(palette)
-    
-    window = QueryClientApp()
-    window.show()
-    sys.exit(app.exec())
-
-
-优化一下界面，比如布局更合理一些，表格单元格再大一点
-
-import sys
-import os
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-                               QLineEdit, QPushButton, QLabel, QTabWidget, QFrame, QTableWidget, QTableWidgetItem,
-                               QComboBox, QRadioButton, QCheckBox, QScrollArea, QMessageBox, QSpacerItem, QMenu,
-                               QHeaderView)
-from PySide6.QtGui import QPalette, QColor, QFont, QIcon, QAction
-from PySide6.QtCore import Qt, QSize, QEvent
-
-class UserButton(QPushButton):
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self.menu = QMenu(self)
-        self.menu.setStyleSheet("""
-            QMenu {
-                border: 1px solid #ced4da;
-                border-radius: 5px;
-                background-color: #ffffff;
-                padding: 5px;
-                box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
-                min-width: 120px;
-            }
-            QMenu::item {
-                padding: 8px 25px;
-                color: #495057;
-                font: 14px;
-            }
-            QMenu::item:selected {
-                background-color: #e9ecef;
-                color: #212529;
-            }
-        """)
-        self.setMenu(self.menu)
-
-    def enterEvent(self, event):
-        self.showMenu()
-        super().enterEvent(event)
-
-class QueryClientApp(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("信息查询客户端")
-        self.setFixedSize(480, 360)
-        
-        if os.path.exists("custom.png"):
-            self.setWindowIcon(QIcon("custom.png"))
-            
-        self.current_user = None
-        self.setup_login_window()
-
-    def setup_login_window(self):
-        login_widget = QWidget()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(40, 20, 40, 40)
-        
-        # 标题部分
-        title = QLabel("信息查询系统")
-        title.setFont(QFont("Microsoft YaHei", 24, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("color: #2d3436; margin-bottom: 30px;")
-        layout.addWidget(title)
-        
-        # 表单容器
-        form_container = QFrame()
-        form_container.setStyleSheet("background: transparent;")
-        form_layout = QFormLayout()
-        form_layout.setContentsMargins(20, 20, 20, 20)
-        form_layout.setVerticalSpacing(15)
-        form_layout.setLabelAlignment(Qt.AlignRight)
-        
-        # 输入字段
-        input_style = """
-            QLineEdit {
-                border: 2px solid #e0e0e0;
-                border-radius: 8px;
-                padding: 10px 15px;
-                font-size: 14px;
-                background: #ffffff;
-            }
-            QLineEdit:focus {
-                border-color: #4dabf7;
-            }
-        """
-        self.username_entry = QLineEdit()
-        self.username_entry.setPlaceholderText("请输入用户名")
-        self.username_entry.setStyleSheet(input_style)
-        self.password_entry = QLineEdit()
-        self.password_entry.setEchoMode(QLineEdit.Password)
-        self.password_entry.setPlaceholderText("请输入密码")
-        self.password_entry.setStyleSheet(input_style)
-        
-        form_layout.addRow("用户名：", self.username_entry)
-        form_layout.addRow("密码：", self.password_entry)
-        
-        # 登录按钮
-        login_btn = QPushButton("登  录")
-        login_btn.setStyleSheet("""
-            QPushButton {
-                background: #4dabf7;
-                color: white;
-                border-radius: 8px;
-                padding: 12px;
-                font-size: 16px;
-                font-weight: 500;
-                margin-top: 20px;
-            }
-            QPushButton:hover {
-                background: #339af0;
-            }
-        """)
-        login_btn.clicked.connect(self.login)
-        
-        form_container.setLayout(form_layout)
-        layout.addWidget(form_container)
-        layout.addWidget(login_btn)
-        
-        login_widget.setLayout(layout)
-        self.setCentralWidget(login_widget)
-
-    def login(self):
-        if self.username_entry.text() and self.password_entry.text():
-            self.current_user = self.username_entry.text()
-            self.show_main_window()
-        else:
-            QMessageBox.critical(self, "错误", "请输入完整的登录信息")
-
-    def show_main_window(self):
-        self.setFixedSize(1200, 800)
-        
-        main_widget = QWidget()
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(20, 15, 20, 20)
-        main_layout.setSpacing(15)
-        
-        # 顶部工具栏
-        header = QHBoxLayout()
-        header.addStretch()
-        self.user_button = UserButton(self.current_user)
-        self.user_button.setStyleSheet("""
-            QPushButton {
-                background: #f8f9fa;
-                color: #495057;
-                border: 2px solid #e9ecef;
-                border-radius: 8px;
-                padding: 8px 20px;
-                font: bold 14px;
-                min-width: 120px;
-            }
-            QPushButton:hover {
-                background: #e9ecef;
-            }
-        """)
-        self.user_button.menu.addAction(QIcon(":/icons/logout.svg"), "退出登录", self.logout)
-        self.user_button.menu.addSeparator()
-        self.user_button.menu.addAction("系统设置", lambda: None)
-        self.user_button.menu.addAction("关于", self.show_about)
-        header.addWidget(self.user_button)
-        main_layout.addLayout(header)
-        
-        # 主内容区
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabBar::tab {
-                padding: 12px 20px;
-                background: #f8f9fa;
-                border: 1px solid #e9ecef;
-                border-bottom: none;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                color: #495057;
-                font: 14px;
-            }
-            QTabBar::tab:selected {
-                background: white;
-                color: #4dabf7;
-                border-color: #e9ecef;
-            }
-            QTabWidget::pane {
-                border: 1px solid #e9ecef;
-                background: white;
-                border-radius: 8px;
-                margin-top: -1px;
-            }
-        """)
-        self.tabs.addTab(QWidget(), "CPU名称查询")
-        self.tabs.addTab(QWidget(), "规格参数查询")
-        self.tabs.currentChanged.connect(self.on_tab_change)
-        main_layout.addWidget(self.tabs)
-        
-        self.setup_content_area()
-        
-        main_widget.setLayout(main_layout)
-        self.setCentralWidget(main_widget)
-        
-    def setup_content_area(self):
-        # 内容区域使用网格布局
-        content = QWidget()
-        self.content_layout = QHBoxLayout()
-        self.content_layout.setContentsMargins(0, 15, 0, 0)
-        self.content_layout.setSpacing(20)
-        
-        # 左侧查询面板
-        self.setup_query_panel()
-        
-        # 右侧表格区域
-        self.table = QTableWidget()
-        self.table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #e9ecef;
-                border-radius: 8px;
-                background: white;
-                alternate-background-color: #f8f9fa;
-            }
-            QHeaderView::section {
-                background: #f8f9fa;
-                border: 1px solid #e9ecef;
-                padding: 12px;
-                font: bold 14px;
-                color: #495057;
-            }
-            QTableWidget::item {
-                padding: 15px;
-                border: none;
-                font: 14px;
-            }
-        """)
-        self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setAlternatingRowColors(True)
-        self.table.setShowGrid(False)
-        
-        self.content_layout.addWidget(self.table, stretch=5)
-        content.setLayout(self.content_layout)
-        self.tabs.currentWidget().setLayout(QVBoxLayout())
-        self.tabs.currentWidget().layout().addWidget(content)
-        
-    def setup_query_panel(self):
-        # 查询条件面板
-        query_panel = QFrame()
-        query_panel.setStyleSheet("background: white; border: 1px solid #e9ecef; border-radius: 8px;")
-        query_panel.setFixedWidth(320)
-        layout = QVBoxLayout()
-        layout.setContentsMargins(20, 20, 20, 20)
-        
-        # 查询条件标题
-        title = QLabel("查询条件")
-        title.setStyleSheet("font: bold 16px; color: #2d3436; margin-bottom: 15px;")
-        layout.addWidget(title)
-        
-        # 条件输入字段
-        self.setup_query_fields(layout)
-        
-        # 查询按钮
-        btn_query = QPushButton("开始查询")
-        btn_query.setStyleSheet("""
-            QPushButton {
-                background: #4dabf7;
-                color: white;
-                border-radius: 8px;
-                padding: 12px;
-                font: bold 14px;
-                margin-top: 20px;
-            }
-            QPushButton:hover {
-                background: #339af0;
-            }
-        """)
-        btn_query.clicked.connect(self.do_query)
-        layout.addWidget(btn_query)
-        
-        query_panel.setLayout(layout)
-        self.content_layout.addWidget(query_panel)
-        
-    def setup_query_fields(self, layout):
-        # 添加示例查询字段
-        fields = [
-            ("型号名称", QLineEdit()),
-            ("制造商", QComboBox()),
-            ("核心数", QLineEdit()),
-            ("基础频率", QLineEdit())
-        ]
-        for label, widget in fields:
-            hbox = QHBoxLayout()
-            hbox.addWidget(QLabel(f"{label}："))
-            if isinstance(widget, QComboBox):
-                widget.addItems(["Intel", "AMD", "ARM"])
-                widget.setStyleSheet("""
-                    QComboBox {
-                        padding: 8px;
-                        border: 2px solid #e9ecef;
-                        border-radius: 6px;
-                    }
-                """)
-            else:
-                widget.setStyleSheet("padding: 8px; border: 2px solid #e9ecef; border-radius: 6px;")
-            hbox.addWidget(widget)
-            layout.addLayout(hbox)
-        
-    def do_query(self):
-        # 示例数据
-        self.table.setRowCount(5)
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["型号", "制造商", "核心数", "频率"])
-        
-        for row in range(5):
-            for col in range(4):
-                item = QTableWidgetItem(f"示例数据{row+1}-{col+1}")
-                item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row, col, item)
-        
-        # 调整行高
-        for row in range(5):
-            self.table.setRowHeight(row, 40)
-            
-    def on_tab_change(self, index):
-        self.setup_content_area()
-        
-    def show_about(self):
-        QMessageBox.information(self, "关于", "信息查询系统 v2.0\n\n技术支持：AI研发中心")
-        
-    def logout(self):
-        self.current_user = None
-        self.setup_login_window()
-        self.setFixedSize(480, 360)
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-    
-    # 设置全局字体
-    font = QFont("Microsoft YaHei", 12)
-    app.setFont(font)
-    
-    window = QueryClientApp()
-    window.show()
-    sys.exit(app.exec())
-
-
-
-
-
-import sys
-import os
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
-                               QLineEdit, QPushButton, QLabel, QTabWidget, QFrame, QTableWidget, QTableWidgetItem,
-                               QComboBox, QRadioButton, QCheckBox, QScrollArea, QMessageBox, QSpacerItem, QMenu,
-                               QHeaderView, QButtonGroup)
-from PySide6.QtGui import QPalette, QColor, QFont, QIcon, QAction
-from PySide6.QtCore import Qt, QSize, QEvent
-
-# 修复1: 添加缺失的QButtonGroup导入
-class UserButton(QPushButton):
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self.menu = QMenu(self)
-        self.menu.setStyleSheet("""
-            QMenu {
-                border: 1px solid #ced4da;
-                border-radius: 5px;
-                background-color: #ffffff;
-                padding: 5px;
-                /* 修复2: 移除不支持的CSS属性 */
-                /* box-shadow: 2px 2px 10px #d1d9e6; */ 
-            }
-            QMenu::item {
-                padding: 5px 20px;
-                color: #212529;
-            }
-            QMenu::item:selected {
-                background-color: #007bff;
-                color: white;
-            }
-        """)
-        self.setMenu(self.menu)
-
-    def enterEvent(self, event):  # 修复3: 使用正确的事件签名
-        super().enterEvent(event)
-        self.showMenu()
-
-class QueryClientApp(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("信息查询客户端")
-        self.setFixedSize(1200, 800)  # 修复4: 修正初始窗口尺寸
-        
-        # 修复5: 使用更可靠的图标路径检测
-        icon_path = os.path.join(os.path.dirname(__file__), "custom.png")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
-        
-        self.current_user = None
-        self.setup_login_window()
-
-    # ... 保留其他方法不变 ...
-
-    def create_query_page(self, fields, table_headers):
-        # 修复6: 清理旧内容更安全的方式
-        while self.content_layout.count():
-            item = self.content_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        # 修复7: 完善表单控件创建
-        search_inner_frame = QFrame()
-        search_layout = QFormLayout()
-        
-        for field, field_type in fields.items():
-            if field_type == "radio":
-                radio_group = QButtonGroup(self)  # 修复8: 添加按钮组管理单选
-                hbox = QHBoxLayout()
-                for text in ["是", "否"]:
-                    radio = QRadioButton(text)
-                    radio_group.addButton(radio)
-                    hbox.addWidget(radio)
-                search_layout.addRow(f"{field}:", hbox)
-            elif field_type == "check":
-                check = QCheckBox("启用")
-                search_layout.addRow(f"{field}:", check)
-            # ... 其他字段处理保持原样 ...
-
-    def perform_search(self):
-        # 修复9: 确保表头和数据一致性
-        sample_data = [
-            ["i7-12700K", "Intel", "12", "3.6GHz"],
-            ["Ryzen 9 5950X", "AMD", "16", "3.4GHz"]
-        ]
-        headers = ["型号", "制造商", "核心数", "基础频率"]  # 与实际数据列数匹配
-        
-        self.table.setColumnCount(len(headers))
-        self.table.setHorizontalHeaderLabels(headers)
-        self.table.setRowCount(len(sample_data))
-
-        # 修复10: 安全的数据填充方式
-        for row, data in enumerate(sample_data):
-            for col, value in enumerate(data):
-                item = QTableWidgetItem(str(value))
-                item.setTextAlignment(Qt.AlignCenter)
-                self.table.setItem(row, col, item)
-
-    # 修复11: 添加缺失的槽函数
-    def on_tab_changed(self, index):
-        if index == 0:
-            self.show_cpu_name_query()
-        elif index == 1:
-            self.show_cpu_spec_query()
-
-    # 修复12: 添加缺失的退出登录功能
-    def logout(self):
-        self.current_user = None
-        self.setup_login_window()
-        self.resize(480, 360)
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    # 修复13: 设置更合理的默认字体
-    font = QFont("Microsoft YaHei", 10)
-    app.setFont(font)
-    
-    window = QueryClientApp()
-    window.show()
-    sys.exit(app.exec())
-
