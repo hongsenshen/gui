@@ -1,4 +1,247 @@
 import sys
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
+                               QLineEdit, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QMenu)
+from PySide6.QtGui import QFont, QColor
+from PySide6.QtCore import Qt, Slot
+
+# 全局变量存储主窗口
+main_window = None
+
+# -------------------- 用户按钮类 --------------------
+class UserButton(QPushButton):
+    def __init__(self, username, parent=None):
+        super().__init__(username, parent)
+        self.menu = QMenu(self)
+        self.setMenu(self.menu)
+        self._style_button()
+
+    def _style_button(self):
+        self.setStyleSheet("""
+            QPushButton {
+                background: #f8f9fa;
+                border: 2px solid #e9ecef;
+                border-radius: 6px;
+                padding: 8px 15px;
+                min-width: 100px;
+            }
+            QPushButton:hover { background: #e9ecef; }
+        """)
+
+    def enterEvent(self, event):
+        self.showMenu()
+        super().enterEvent(event)
+
+# -------------------- 登录窗口 --------------------
+class LoginWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("登录 - CPU信息查询系统")
+        self._setup_ui()
+
+    def _setup_ui(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
+        layout.addStretch()
+
+        title = QLabel("CPU信息查询系统")
+        title.setFont(QFont("Microsoft YaHei", 24, QFont.Bold))
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        form = QWidget()
+        form_layout = QFormLayout()
+        self.username_input = QLineEdit()
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.Password)
+        
+        for w in [self.username_input, self.password_input]:
+            w.setFixedWidth(300)
+            w.setStyleSheet("padding: 8px; border: 2px solid #e0e0e0; border-radius: 4px;")
+
+        form_layout.addRow("用户名：", self.username_input)
+        form_layout.addRow("密码：", self.password_input)
+        form.setLayout(form_layout)
+
+        btn_login = QPushButton("登录系统")
+        btn_login.setStyleSheet("""
+            QPushButton {
+                background: #4dabf7; 
+                color: white;
+                padding: 12px;
+                border-radius: 6px;
+                font: bold 16px;
+            }
+            QPushButton:hover { background: #339af0; }
+        """)
+        btn_login.clicked.connect(self._on_login_clicked)
+
+        layout.addLayout(self._centered(form))
+        layout.addWidget(btn_login, alignment=Qt.AlignCenter)
+        layout.addStretch()
+        
+        widget.setLayout(layout)
+        self.setCentralWidget(widget)
+
+        # 设置固定大小并禁用最大化按钮
+        self.setMinimumSize(1280, 720)
+        self.setMaximumSize(1280, 720)
+        flags = self.windowFlags() & ~Qt.WindowMaximizeButtonHint
+        self.setWindowFlags(flags)
+
+        print(f"登录窗口标志: {hex(self.windowFlags())}")
+        print(f"登录窗口最大尺寸: {self.maximumSize().width()} x {self.maximumSize().height()}")
+
+    @Slot()
+    def _on_login_clicked(self):
+        global main_window
+        username = self.username_input.text()
+        password = self.password_input.text()
+        if username and password == "123456":  # 简单验证，实际可替换为真实逻辑
+            main_window = MainWindow(username=username)  # 传递用户名
+            main_window.show()
+            self.close()
+            print(f"登录成功，用户名: {username}，切换到主窗口")
+        else:
+            print("登录失败")
+
+    def _centered(self, widget):
+        layout = QHBoxLayout()
+        layout.addStretch()
+        layout.addWidget(widget)
+        layout.addStretch()
+        return layout
+
+# -------------------- 主窗口 --------------------
+class MainWindow(QMainWindow):
+    def __init__(self, username="管理员"):
+        super().__init__()
+        self.username = username  # 存储用户名
+        self.setWindowTitle("CPU信息查询系统")
+        self._setup_ui()
+
+    def _setup_ui(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
+
+        # 顶部工具栏
+        header = QHBoxLayout()
+        header.addStretch()
+        btn_user = UserButton(self.username)  # 显示用户名
+        btn_user.menu.addAction("退出", self._handle_logout)
+        header.addWidget(btn_user)
+        layout.addLayout(header)
+
+        # 主内容区域
+        content_layout = QHBoxLayout()
+        
+        # 查询条件表单（左侧）
+        form = QWidget()
+        form_layout = QFormLayout()
+        self.model_input = QLineEdit()
+        self.vendor_combo = QComboBox()
+        self.vendor_combo.addItems(["全部", "Intel", "AMD", "ARM"])
+        form_layout.addRow("型号名称：", self.model_input)
+        form_layout.addRow("制造商：", self.vendor_combo)
+        btn_query = QPushButton("查询")
+        btn_query.clicked.connect(self._on_query)
+        form_layout.addRow(btn_query)
+        form.setLayout(form_layout)
+        content_layout.addWidget(form)
+
+        # 表格（右侧，纵向显示）
+        self.table = QTableWidget()
+        self._init_table()
+        content_layout.addWidget(self.table, stretch=1)
+
+        layout.addLayout(content_layout)
+        widget.setLayout(layout)
+        self.setCentralWidget(widget)
+
+        # 设置初始大小并启用最大化
+        self.resize(1280, 720)
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+        flags = (Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | 
+                 Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
+        self.setWindowFlags(flags)
+
+        print(f"主窗口标志: {hex(self.windowFlags())}")
+        print(f"主窗口最大尺寸: {self.maximumSize().width()} x {self.maximumSize().height()}")
+
+    def _init_table(self):
+        headers = ["型号", "制造商", "核心数", "基础频率", "TDP"]
+        self.table.setRowCount(len(headers))
+        self.table.setColumnCount(3)
+        self.table.setVerticalHeaderLabels(headers)
+        self.table.setHorizontalHeaderLabels(["数据1", "数据2", "数据3"])
+        
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        self.table.setStyleSheet("""
+            QTableWidget {
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                background: white;
+            }
+            QHeaderView::section {
+                background: #f8f9fa;
+                padding: 12px;
+            }
+        """)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+    @Slot()
+    def _on_query(self):
+        sample_data = [
+            ["i7-12700K", "Intel", "12", "3.6GHz", "125W"],
+            ["Ryzen 9 5950X", "AMD", "16", "3.4GHz", "105W"],
+            ["Cortex-A78", "ARM", "8", "2.8GHz", "35W"]
+        ]
+        self._update_table(sample_data)
+
+    def _update_table(self, data):
+        self.table.setColumnCount(len(data))
+        self.table.setHorizontalHeaderLabels([f"数据{i+1}" for i in range(len(data))])
+        
+        for col, row_data in enumerate(data):
+            for row, value in enumerate(row_data):
+                item = QTableWidgetItem(value)
+                item.setTextAlignment(Qt.AlignCenter)
+                
+                if "Intel" in value:
+                    item.setBackground(QColor("#cce5ff"))
+                elif "AMD" in value:
+                    item.setBackground(QColor("#ffcccc"))
+                elif "ARM" in value:
+                    item.setBackground(QColor("#ccffcc"))
+                elif "GHz" in value:
+                    item.setBackground(QColor("#fff3cc"))
+                
+                self.table.setItem(row, col, item)
+
+    @Slot()
+    def _handle_logout(self):
+        global main_window
+        login_window = LoginWindow()
+        login_window.show()
+        self.close()
+        main_window = None
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setFont(QFont("Microsoft YaHei", 12))
+    login_window = LoginWindow()
+    login_window.show()
+    sys.exit(app.exec())
+
+
+
+
+
+
+
+import sys
 import os
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
                                QLineEdit, QPushButton, QLabel, QTabWidget, QFrame, QTableWidget, QTableWidgetItem,
