@@ -1,5 +1,355 @@
 import sys
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
+                               QLineEdit, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QMenu, QCheckBox)
+from PySide6.QtGui import QFont, QColor
+from PySide6.QtCore import Qt, Slot, QPropertyAnimation, QEasingCurve
+
+# -------------------- 窗口管理器 --------------------
+class WindowManager:
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(WindowManager, cls).__new__(cls)
+            cls.windows = {}  # 存储窗口实例 {'name': window}
+            cls.current_window = None  # 当前显示的窗口
+        return cls._instance
+
+    def register_window(self, name, window_class, *args, **kwargs):
+        """注册窗口类型并创建实例"""
+        if name not in self.windows:
+            self.windows[name] = window_class(*args, **kwargs)
+        return self.windows[name]
+
+    def switch_to(self, name, data=None):
+        """切换到指定窗口，带动画效果"""
+        if name in self.windows:
+            new_window = self.windows[name]
+            if self.current_window:
+                anim_out = QPropertyAnimation(self.current_window, b"windowOpacity")
+                anim_out.setDuration(300)
+                anim_out.setStartValue(1.0)
+                anim_out.setEndValue(0.0)
+                anim_out.setEasingCurve(QEasingCurve.InOutQuad)
+                anim_out.finished.connect(self.current_window.hide)
+                anim_out.start()
+            
+            if data:
+                new_window.set_data(data)
+            new_window.move(self.current_window.pos() if self.current_window else new_window.pos())
+            new_window.show()
+            anim_in = QPropertyAnimation(new_window, b"windowOpacity")
+            anim_in.setDuration(300)
+            anim_in.setStartValue(0.0)
+            anim_in.setEndValue(1.0)
+            anim_in.setEasingCurve(QEasingCurve.InOutQuad)
+            anim_in.start()
+            
+            self.current_window = new_window
+            print(f"切换到窗口: {name}")
+        else:
+            print(f"窗口 {name} 未注册")
+
+    def get_window(self, name):
+        """获取窗口实例"""
+        return self.windows.get(name)
+
+# -------------------- 窗口基类 --------------------
+class BaseWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.manager = WindowManager()
+        self.setWindowOpacity(1.0)  # 默认不透明
+
+    def set_data(self, data):
+        """接收切换时传递的数据，子类可重写"""
+        pass
+
+    def closeEvent(self, event):
+        """防止意外关闭程序"""
+        if not any(w.isVisible() for w in self.manager.windows.values()):
+            event.accept()
+        else:
+            event.ignore()
+            self.hide()
+
+# -------------------- 登录窗口 --------------------
+class LoginWindow(BaseWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("登录 - CPU信息查询系统")
+        self._setup_ui()
+
+    def _setup_ui(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
+        layout.addStretch()
+
+        title = QLabel("CPU信息查询系统")
+        title.setFont(QFont("Microsoft YaHei", 24, QFont.Bold))
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        form = QWidget()
+        form_layout = QFormLayout()
+        self.username_input = QLineEdit()
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.Password)
+        
+        for w in [self.username_input, self.password_input]:
+            w.setFixedWidth(300)
+            w.setStyleSheet("padding: 8px; border: 2px solid #e0e0e0; border-radius: 4px;")
+
+        form_layout.addRow("用户名：", self.username_input)
+        form_layout.addRow("密码：", self.password_input)
+        form.setLayout(form_layout)
+
+        btn_login = QPushButton("登录系统")
+        btn_login.setStyleSheet("""
+            QPushButton {
+                background: #4dabf7; 
+                color: white;
+                padding: 12px;
+                border-radius: 6px;
+                font: bold 16px;
+            }
+            QPushButton:hover { background: #339af0; }
+        """)
+        btn_login.clicked.connect(self._on_login_clicked)
+
+        layout.addLayout(self._centered(form))
+        layout.addWidget(btn_login, alignment=Qt.AlignCenter)
+        layout.addStretch()
+        
+        widget.setLayout(layout)
+        self.setCentralWidget(widget)
+
+        self.setMinimumSize(1280, 720)
+        self.setMaximumSize(1280, 720)
+        flags = self.windowFlags() & ~Qt.WindowMaximizeButtonHint
+        self.setWindowFlags(flags)
+
+    @Slot()
+    def _on_login_clicked(self):
+        username = self.username_input.text()
+        password = self.password_input.text()
+        if username and password == "123456":
+            self.manager.switch_to("main", data={"username": username})
+        else:
+            print("登录失败")
+
+    def _centered(self, widget):
+        layout = QHBoxLayout()
+        layout.addStretch()
+        layout.addWidget(widget)
+        layout.addStretch()
+        return layout
+
+# -------------------- 主窗口 --------------------
+class MainWindow(BaseWindow):
+    def __init__(self):
+        super().__init__()
+        self.username = "管理员"
+        self.setWindowTitle("CPU信息查询系统")
+        self._setup_ui()
+
+    def _setup_ui(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
+
+        # 顶部工具栏
+        self.header = QHBoxLayout()
+        self.header.addStretch()
+        self.btn_user = UserButton(self.username)
+        self.btn_user.menu.addAction("设置", self._open_settings)
+        self.btn_user.menu.addAction("退出", self._handle_logout)
+        self.header.addWidget(self.btn_user)
+        layout.addLayout(self.header)
+
+        # 主内容区域
+        content_layout = QHBoxLayout()
+        
+        form = QWidget()
+        form_layout = QFormLayout()
+        self.model_input = QLineEdit()
+        self.vendor_combo = QComboBox()
+        self.vendor_combo.addItems(["全部", "Intel", "AMD", "ARM"])
+        form_layout.addRow("型号名称：", self.model_input)
+        form_layout.addRow("制造商：", self.vendor_combo)
+        btn_query = QPushButton("查询")
+        btn_query.clicked.connect(self._on_query)
+        form_layout.addRow(btn_query)
+        form.setLayout(form_layout)
+        content_layout.addWidget(form)
+
+        self.table = QTableWidget()
+        self._init_table()
+        content_layout.addWidget(self.table, stretch=1)
+
+        layout.addLayout(content_layout)
+        widget.setLayout(layout)
+        self.setCentralWidget(widget)
+
+        self.resize(1280, 720)
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+        flags = (Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | 
+                 Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
+        self.setWindowFlags(flags)
+
+    def set_data(self, data):
+        if "username" in data:
+            self.username = data["username"]
+            self.btn_user.setText(self.username)
+
+    def _init_table(self):
+        headers = ["型号", "制造商", "核心数", "基础频率", "TDP"]
+        self.table.setRowCount(len(headers))
+        self.table.setColumnCount(3)
+        self.table.setVerticalHeaderLabels(headers)
+        self.table.setHorizontalHeaderLabels(["数据1", "数据2", "数据3"])
+        
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        self.table.setStyleSheet("""
+            QTableWidget {
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                background: white;
+            }
+            QHeaderView::section {
+                background: #f8f9fa;
+                padding: 12px;
+            }
+        """)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+    @Slot()
+    def _on_query(self):
+        sample_data = [
+            ["i7-12700K", "Intel", "12", "3.6GHz", "125W"],
+            ["Ryzen 9 5950X", "AMD", "16", "3.4GHz", "105W"],
+            ["Cortex-A78", "ARM", "8", "2.8GHz", "35W"]
+        ]
+        self._update_table(sample_data)
+
+    def _update_table(self, data):
+        self.table.setColumnCount(len(data))
+        self.table.setHorizontalHeaderLabels([f"数据{i+1}" for i in range(len(data))])
+        
+        for col, row_data in enumerate(data):
+            for row, value in enumerate(row_data):
+                item = QTableWidgetItem(value)
+                item.setTextAlignment(Qt.AlignCenter)
+                
+                if "Intel" in value:
+                    item.setBackground(QColor("#cce5ff"))
+                elif "AMD" in value:
+                    item.setBackground(QColor("#ffcccc"))
+                elif "ARM" in value:
+                    item.setBackground(QColor("#ccffcc"))
+                elif "GHz" in value:
+                    item.setBackground(QColor("#fff3cc"))
+                
+                self.table.setItem(row, col, item)
+
+    @Slot()
+    def _open_settings(self):
+        self.manager.switch_to("settings")
+
+    @Slot()
+    def _handle_logout(self):
+        self.manager.switch_to("login")
+
+# -------------------- 设置窗口 --------------------
+class SettingsWindow(BaseWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("设置 - CPU信息查询系统")
+        self._setup_ui()
+
+    def _setup_ui(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
+
+        title = QLabel("设置")
+        title.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        form = QWidget()
+        form_layout = QFormLayout()
+        self.dark_mode = QCheckBox("启用暗黑模式")
+        form_layout.addRow(self.dark_mode)
+        btn_save = QPushButton("保存并返回")
+        btn_save.clicked.connect(self._save_settings)
+        form_layout.addRow(btn_save)
+        form.setLayout(form_layout)
+
+        layout.addWidget(form)
+        layout.addStretch()
+        widget.setLayout(layout)
+        self.setCentralWidget(widget)
+
+        self.resize(800, 600)
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+        flags = (Qt.Window | Qt.WindowTitleHint | Qt.WindowCloseButtonHint | 
+                 Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
+        self.setWindowFlags(flags)
+
+    @Slot()
+    def _save_settings(self):
+        # 示例：保存设置并返回主窗口
+        print(f"暗黑模式: {self.dark_mode.isChecked()}")
+        self.manager.switch_to("main")
+
+# -------------------- 用户按钮类 --------------------
+class UserButton(QPushButton):
+    def __init__(self, username, parent=None):
+        super().__init__(username, parent)
+        self.menu = QMenu(self)
+        self.setMenu(self.menu)
+        self._style_button()
+
+    def _style_button(self):
+        self.setStyleSheet("""
+            QPushButton {
+                background: #f8f9fa;
+                border: 2px solid #e9ecef;
+                border-radius: 6px;
+                padding: 8px 15px;
+                min-width: 100px;
+            }
+            QPushButton:hover { background: #e9ecef; }
+        """)
+
+    def enterEvent(self, event):
+        self.showMenu()
+        super().enterEvent(event)
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setFont(QFont("Microsoft YaHei", 12))
+    
+    # 初始化窗口管理器并注册窗口
+    manager = WindowManager()
+    manager.register_window("login", LoginWindow)
+    manager.register_window("main", MainWindow)
+    manager.register_window("settings", SettingsWindow)
+    
+    # 显示初始窗口
+    manager.switch_to("login")
+    sys.exit(app.exec())
+
+
+
+
+
+
+import sys
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
                                QLineEdit, QPushButton, QLabel, QTableWidget, QTableWidgetItem, QMenu)
 from PySide6.QtGui import QFont, QColor
 from PySide6.QtCore import Qt, Slot
