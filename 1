@@ -1,712 +1,219 @@
-class ModelQueryWindow(QMainWindow):
-    def __init__(self, manager):
-        super().__init__()
-        self.manager = manager
-        self.setWindowTitle("型号查询")
-        self.input_widgets = {}
-        self.username = "未登录"  # 默认用户名
-        print("型号查询窗口初始化开始")
-        self._setup_ui()
-        print("型号查询窗口初始化完成")
-
-    def _setup_ui(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-
-        # 顶部用户区域
-        header_layout = QHBoxLayout()
-        header_layout.addStretch()
-        self.username_label = QLabel(f"用户: {self.username}")
-        self.username_label.setStyleSheet("font-size: 14px; color: #374151;")
-        header_layout.addWidget(self.username_label)
-        logout_btn = QPushButton("退出登录")
-        logout_btn.setStyleSheet("""
-            QPushButton { background: #ef4444; color: white; padding: 6px 12px; border-radius: 6px; font: bold 12px "Microsoft YaHei"; }
-            QPushButton:hover { background: #dc2626; }
-        """)
-        logout_btn.clicked.connect(self._logout)
-        header_layout.addWidget(logout_btn)
-        layout.addLayout(header_layout)
-
-        # 主内容
-        content_layout = QHBoxLayout()
-        form_group = QGroupBox("查询条件")
-        form_group.setStyleSheet("""
-            QGroupBox { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; font: bold 15px "Microsoft YaHei"; color: #1e293b; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); }
-            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; margin-left: 12px; padding: 4px 12px; background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #e5e7eb, stop:1 #f1f5f9); border-radius: 6px; color: #475569; }
-        """)
-        form_layout = QVBoxLayout()
-        form_layout.setSpacing(18)
-
-        fields = {
-            "model": {"label": "型号名称", "type": "text", "placeholder": "输入型号关键字"},
-            "vendor": {"label": "制造商", "type": "combo", "items": ["全部", "Intel", "AMD", "ARM"]}
-        }
-        for field, config in fields.items():
-            hbox = QHBoxLayout()
-            hbox.setSpacing(12)
-            label = QLabel(f"{config['label']}：")
-            label.setStyleSheet("font-size: 14px; color: #475569; font-weight: 600;")
-            label.setFixedWidth(90)
-            label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-            if config["type"] == "text":
-                widget = QLineEdit()
-                widget.setPlaceholderText(config["placeholder"])
-                widget.setStyleSheet("""
-                    QLineEdit { padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 14px; background: #f8fafc; color: #1e293b; transition: all 0.2s ease; }
-                    QLineEdit:hover { border: 1px solid #93c5fd; background: #f9fafb; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
-                    QLineEdit:focus { border: 1px solid #3b82f6; background: #ffffff; box-shadow: 0 0 10px rgba(59, 130, 246, 0.2); }
-                """)
-                widget.setMinimumWidth(200)
-            elif config["type"] == "combo":
-                widget = QComboBox()
-                widget.addItems(config["items"])
-                widget.setStyleSheet("""
-                    QComboBox { padding: 10px 36px 10px 14px; border: 1px solid #d1d5db; border-radius: 12px; font-size: 14px; background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #fefefe, stop:1 #f1f5f9); color: #1e293b; transition: all 0.3s ease-in-out; }
-                    QComboBox:hover { border: 1px solid #60a5fa; background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f9fafb, stop:1 #e5e7eb); box-shadow: 0 3px 10px rgba(96, 165, 250, 0.15); }
-                    QComboBox:on { border: 1px solid #2563eb; background: #eff6ff; box-shadow: 0 0 12px rgba(37, 99, 235, 0.25); }
-                    QComboBox::drop-down { border: none; width: 36px; background: transparent; }
-                    QComboBox::down-arrow { width: 14px; height: 14px; border-left: 7px solid transparent; border-right: 7px solid transparent; border-top: 10px solid #374151; }
-                    QComboBox QAbstractItemView { border: 1px solid #d1d5db; border-radius: 10px; background: #ffffff; color: #1e293b; padding: 8px; selection-background-color: #bfdbfe; selection-color: #1e293b; outline: none; max-height: 180px; }
-                    QComboBox QAbstractItemView::item { padding: 12px 18px; min-height: 38px; border-radius: 6px; }
-                    QComboBox QAbstractItemView::item:hover { background: #f1f5f9; color: #1e293b; }
-                    QComboBox QAbstractItemView::item:selected { background: #bfdbfe; color: #1e293b; font-weight: bold; }
-                """)
-                widget.setMinimumWidth(200)
-                widget.setMaxVisibleItems(8)
-            self.input_widgets[field] = widget
-            hbox.addWidget(label)
-            hbox.addWidget(widget)
-            hbox.addStretch()
-            form_layout.addLayout(hbox)
-
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(12)
-        self.btn_query = QPushButton("查询")
-        self.btn_query.setStyleSheet("""
-            QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3b82f6, stop:1 #2563eb); color: white; padding: 10px 24px; border: none; border-radius: 10px; font: bold 14px "Microsoft YaHei"; transition: all 0.2s ease; }
-            QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #60a5fa, stop:1 #1d4ed8); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
-        """)
-        button_layout.addWidget(self.btn_query)
-
-        self.btn_clear = QPushButton("清除")
-        self.btn_clear.setStyleSheet("""
-            QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6b7280, stop:1 #4b5563); color: white; padding: 10px 24px; border: none; border-radius: 10px; font: bold 14px "Microsoft YaHei"; transition: all 0.2s ease; }
-            QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7c8899, stop:1 #374151); box-shadow: 0 4px 12px rgba(71, 85, 105, 0.3); }
-        """)
-        button_layout.addWidget(self.btn_clear)
-
-        btn_back = QPushButton("返回")
-        btn_back.setStyleSheet("""
-            QPushButton { background: #9ca3af; color: white; padding: 10px 24px; border: none; border-radius: 10px; font: bold 14px "Microsoft YaHei"; transition: all 0.2s ease; }
-            QPushButton:hover { background: #6b7280; box-shadow: 0 4px 12px rgba(107, 114, 128, 0.3); }
-        """)
-        btn_back.clicked.connect(lambda: self.manager.switch_to("main"))
-        button_layout.addWidget(btn_back)
-        button_layout.addStretch()
-
-        form_layout.addLayout(button_layout)
-        form_layout.addStretch()
-        form_group.setLayout(form_layout)
-        form_group.setFixedWidth(360)
-        content_layout.addWidget(form_group)
-
-        self.stacked_widget = QStackedWidget()
-        no_data_widget = QWidget()
-        no_data_layout = QVBoxLayout()
-        no_data_layout.addStretch()
-        no_data_label = QLabel("暂无数据")
-        no_data_label.setAlignment(Qt.AlignCenter)
-        no_data_label.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))
-        no_data_label.setStyleSheet("color: #9ca3af;")
-        no_data_layout.addWidget(no_data_label)
-        no_data_layout.addStretch()
-        no_data_widget.setLayout(no_data_layout)
-        self.stacked_widget.addWidget(no_data_widget)
-
-        self.table = QTableWidget()
-        self._init_table(self.table)
-        self.stacked_widget.addWidget(self.table)
-        self.stacked_widget.setCurrentIndex(0)
-
-        content_layout.addWidget(self.stacked_widget, stretch=1)
-        layout.addLayout(content_layout)
-        widget.setLayout(layout)
-        widget.setStyleSheet("background: #f9fafb;")
-        self.setCentralWidget(widget)
-        self.resize(1280, 720)
-        self.setMinimumSize(800, 600)
-
-        self.btn_query.clicked.connect(self._on_query)
-        self.btn_clear.clicked.connect(self._on_clear)
-
-    def _init_table(self, table):
-        table.setRowCount(0)
-        table.setColumnCount(0)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        table.horizontalHeader().setMinimumSectionSize(150)
-        table.verticalHeader().setMinimumSectionSize(40)
-        table.setStyleSheet("""
-            QTableWidget { border: 1px solid #e5e7eb; border-radius: 8px; background: #ffffff; font-size: 14px; }
-            QHeaderView::section { background: #f3f4f6; padding: 12px; border: 1px solid #e5e7eb; font: bold 14px "Microsoft YaHei"; color: #374151; }
-            QTableWidget::item { padding: 10px; }
-        """)
-
-    @Slot()
-    def _on_query(self):
-        conditions = {}
-        for field, widget in self.input_widgets.items():
-            if isinstance(widget, QLineEdit):
-                conditions[field] = widget.text()
-            elif isinstance(widget, QComboBox):
-                conditions[field] = widget.currentText()
-        sample_data = [
-            ["i7-12700K", "Intel", "12", "3.6GHz", "125W"],
-            ["Ryzen 9 5950X", "AMD", "16", "3.4GHz", "105W"],
-            ["Cortex-A78", "ARM", "8", "2.8GHz", "35W"]
-        ]
-        self._update_table(sample_data)
-
-    @Slot()
-    def _on_clear(self):
-        for widget in self.input_widgets.values():
-            if isinstance(widget, QLineEdit):
-                widget.clear()
-            elif isinstance(widget, QComboBox):
-                widget.setCurrentIndex(0)
-        self._update_table([])
-
-    @Slot()
-    def _logout(self):
-        print("退出登录")
-        self.manager.switch_to("main")  # 示例：回到主窗口，可改为实际退出逻辑
-
-    def _update_table(self, data):
-        if not data:
-            self.stacked_widget.setCurrentIndex(0)
-        else:
-            self.stacked_widget.setCurrentIndex(1)
-            headers = ["型号", "制造商", "核心数", "基础频率", "TDP"]
-            self.table.setRowCount(len(headers))
-            self.table.setColumnCount(len(data))
-            self.table.setVerticalHeaderLabels(headers)
-            self.table.setHorizontalHeaderLabels(["" for _ in range(len(data))])
-            self.table.horizontalHeader().hide()
-            for col, row_data in enumerate(data):
-                for row, value in enumerate(row_data):
-                    item = QTableWidgetItem(value)
-                    item.setTextAlignment(Qt.AlignCenter)
-                    if "Intel" in value:
-                        item.setBackground(QColor("#dbeafe"))
-                    elif "AMD" in value:
-                        item.setBackground(QColor("#fee2e2"))
-                    elif "ARM" in value:
-                        item.setBackground(QColor("#d1fae5"))
-                    elif "GHz" in value:
-                        item.setBackground(QColor("#fef3c7"))
-                    self.table.setItem(row, col, item)
-
-    def set_data(self, data):
-        if "username" in data:
-            self.username = data["username"]
-            self.username_label.setText(f"用户: {self.username}")
-
-
-
-
-
-
 import sys
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, 
-                               QPushButton, QLabel, QTableWidget, QTableWidgetItem, QMenu, QCheckBox, 
-                               QStackedWidget, QComboBox, QGroupBox, QHeaderView)
-from PySide6.QtGui import QFont, QColor, QPalette
-from PySide6.QtCore import Qt, Slot, QTimer
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+                               QLineEdit, QTableView, QMenu, QAction, QPushButton, QCheckBox, QWidgetAction)
+from PySide6.QtGui import QStandardItemModel, QStandardItem, QColor, QFont, QCursor
+from PySide6.QtCore import Qt, QPoint
 
-# WindowManager（保持不变）
-class WindowManager:
-    _instance = None
+# 预定义电脑配置池
+computers_pool = {
+    "Dell XPS 13": {"品牌": "Dell", "CPU": "Intel i7-12700", "内存": "16GB", "硬盘": "512GB SSD", "显卡": "Intel Iris Xe", "价格": "12000"},
+    "HP Spectre x360": {"品牌": "HP", "CPU": "Intel i5-12350", "内存": "8GB", "硬盘": "256GB SSD", "显卡": "Intel UHD", "价格": "9000"},
+    "Lenovo ThinkPad X1": {"品牌": "Lenovo", "CPU": "AMD Ryzen 7", "内存": "32GB", "硬盘": "1TB SSD", "显卡": "AMD Radeon", "价格": "15000"},
+    "Dell Inspiron 15": {"品牌": "Dell", "CPU": "Intel i3-11150", "内存": "8GB", "硬盘": "1TB HDD", "显卡": "Intel UHD", "价格": "6000"}
+}
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(WindowManager, cls).__new__(cls)
-            cls.windows = {}
-            cls.current_window = None
-        return cls._instance
+# 可选参数
+options = {
+    "品牌": sorted(set(comp["品牌"] for comp in computers_pool.values())),
+    "CPU": sorted(set(comp["CPU"] for comp in computers_pool.values())),
+    "内存": ["8GB", "16GB", "32GB"],
+    "硬盘": ["256GB SSD", "512GB SSD", "1TB SSD", "1TB HDD"],
+    "显卡": ["Intel UHD", "Intel Iris Xe", "AMD Radeon"]
+}
 
-    def register_window(self, name, window_class, *args, **kwargs):
-        if name not in self.windows:
-            self.windows[name] = window_class(*args, **kwargs)
-        return self.windows[name]
+class MultiSelectMenu(QMenu):
+    def __init__(self, items, selected_items, callback, parent=None):
+        super().__init__(parent)
+        self.selected_items = selected_items.copy()
+        self.callback = callback
+        for item in items:
+            checkbox = QCheckBox(item)
+            checkbox.setChecked(item in self.selected_items)
+            checkbox.stateChanged.connect(lambda state, i=item: self.toggle_item(i, state))
+            widget_action = QWidgetAction(self)
+            widget_action.setDefaultWidget(checkbox)
+            self.addAction(widget_action)
+        self.setStyleSheet("QMenu { menu-scrollable: 1; }")
 
-    def switch_to(self, name, data=None):
-        if name in self.windows:
-            new_window = self.windows[name]
-            if self.current_window:
-                self.current_window.hide()
-            if data:
-                new_window.set_data(data)
-            new_window.move(self.current_window.pos() if self.current_window else new_window.pos())
-            new_window.show()
-            QTimer.singleShot(50, lambda: (new_window.raise_(), new_window.activateWindow()))
-            self.current_window = new_window
-            print(f"切换到窗口: {name}")
-        else:
-            print(f"窗口 {name} 未注册")
+    def toggle_item(self, item, state):
+        if state == Qt.Checked and item not in self.selected_items:
+            self.selected_items.append(item)
+        elif state == Qt.Unchecked and item in self.selected_items:
+            self.selected_items.remove(item)
+        self.callback(self.selected_items)
 
-    def get_window(self, name):
-        return self.windows.get(name)
+class SingleSelectMenu(QMenu):
+    def __init__(self, items, selected_items, callback, parent=None):
+        super().__init__(parent)
+        self.selected_items = selected_items.copy()
+        self.callback = callback
+        for item in items:
+            action = QAction(item, self, checkable=True)
+            action.setChecked(item in self.selected_items)
+            action.triggered.connect(lambda checked, i=item: self.toggle_item(i, checked))
+            self.addAction(action)
+        self.setStyleSheet("QMenu { menu-scrollable: 1; }")
 
-# 主窗口（导航）
-class MainWindow(QMainWindow):
-    def __init__(self, manager):
+    def toggle_item(self, item, checked):
+        if checked:
+            self.selected_items = [item]  # 单选，覆盖之前的选择
+        elif item in self.selected_items:
+            self.selected_items.clear()
+        for action in self.actions():
+            action.setChecked(action.text() in self.selected_items)
+        self.callback(self.selected_items)
+
+class ComparisonWindow(QMainWindow):
+    def __init__(self):
         super().__init__()
-        self.manager = manager
-        self.setWindowTitle("CPU信息查询系统 - 主页")
-        self._setup_ui()
+        self.setWindowTitle("电脑配置对比工具")
+        self.setGeometry(100, 100, 1000, 600)
 
-    def _setup_ui(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-        layout.addStretch()
+        # 主布局
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout(central_widget)
 
-        title = QLabel("CPU信息查询系统")
-        title.setFont(QFont("Microsoft YaHei", 24, QFont.Bold))
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
+        # 搜索模块
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("点击选择筛选条件...")
+        self.search_input.setReadOnly(True)
+        self.search_input.mousePressEvent = self.show_filter_menu
+        layout.addWidget(self.search_input)
 
-        btn_model_query = QPushButton("型号查询")
-        btn_model_query.setStyleSheet("""
-            QPushButton { background: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; font: bold 16px "Microsoft YaHei"; }
-            QPushButton:hover { background: #2563eb; }
-        """)
-        btn_model_query.clicked.connect(lambda: self.manager.switch_to("model_query"))
-        layout.addWidget(btn_model_query, alignment=Qt.AlignCenter)
+        # 条件框布局
+        self.filters_layout = QHBoxLayout()
+        layout.addLayout(self.filters_layout)
 
-        btn_spec_query = QPushButton("规格查询")
-        btn_spec_query.setStyleSheet("""
-            QPushButton { background: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; font: bold 16px "Microsoft YaHei"; }
-            QPushButton:hover { background: #2563eb; }
-        """)
-        btn_spec_query.clicked.connect(lambda: self.manager.switch_to("spec_query"))
-        layout.addWidget(btn_spec_query, alignment=Qt.AlignCenter)
+        # 表格视图
+        self.model = QStandardItemModel()
+        self.table_view = QTableView()
+        self.table_view.setModel(self.model)
+        self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        layout.addWidget(self.table_view)
 
-        layout.addStretch()
-        widget.setLayout(layout)
-        widget.setStyleSheet("background: #f9fafb;")
-        self.setCentralWidget(widget)
-        self.resize(800, 600)
-        self.setMinimumSize(800, 600)
+        # 筛选条件存储
+        self.filters = {}
 
-    def set_data(self, data):
-        pass
+    def show_filter_menu(self, event):
+        menu = QMenu(self)
+        for param, items in options.items():
+            if param not in self.filters:  # 未选择的参数
+                action = QAction(param, self)
+                if param == "品牌":
+                    action.setMenu(MultiSelectMenu(items, self.filters.get(param, []), 
+                                                  lambda selected, p=param: self.apply_filter(p, selected), self))
+                else:
+                    action.setMenu(SingleSelectMenu(items, self.filters.get(param, []), 
+                                                   lambda selected, p=param: self.apply_filter(p, selected), self))
+                menu.addAction(action)
+        # 编辑已有条件
+        if self.filters:
+            edit_menu = menu.addMenu("编辑已有条件")
+            for param in self.filters.keys():
+                action = QAction(param, self)
+                if param == "品牌":
+                    action.setMenu(MultiSelectMenu(options[param], self.filters.get(param, []), 
+                                                  lambda selected, p=param: self.apply_filter(p, selected), self))
+                else:
+                    action.setMenu(SingleSelectMenu(options[param], self.filters.get(param, []), 
+                                                   lambda selected, p=param: self.apply_filter(p, selected), self))
+                edit_menu.addAction(action)
+        menu.exec(QCursor.pos())
 
+    def apply_filter(self, param, selected):
+        if selected:
+            self.filters[param] = selected
+        elif param in self.filters:
+            del self.filters[param]
+        self.update_filters_display()
+        self.generate_comparison()
 
+    def update_filters_display(self):
+        # 更新输入框
+        filter_text = " | ".join(f"{param}: {', '.join(values)}" for param, values in self.filters.items())
+        self.search_input.setText(filter_text if filter_text else "点击选择筛选条件...")
 
+        # 更新条件框
+        for i in reversed(range(self.filters_layout.count())):
+            self.filters_layout.itemAt(i).widget().deleteLater()
+        
+        for param, values in self.filters.items():
+            tag_widget = QWidget()
+            tag_layout = QHBoxLayout(tag_widget)
+            tag_layout.setContentsMargins(2, 2, 2, 2)
+            label = QPushButton(f"{param}: {', '.join(values)}")
+            label.setFlat(True)
+            label.clicked.connect(lambda checked, p=param: self.reselect_filter(p))
+            label.setToolTip("点击重新选择")
+            remove_btn = QPushButton("x")
+            remove_btn.setFixedSize(20, 20)
+            remove_btn.clicked.connect(lambda checked, p=param: self.remove_filter(p))
+            tag_layout.addWidget(label)
+            tag_layout.addWidget(remove_btn)
+            tag_widget.setStyleSheet("background-color: #e0e0e0; border-radius: 5px; padding: 2px;")
+            self.filters_layout.addWidget(tag_widget)
 
-class ModelQueryWindow(QMainWindow):
-    def __init__(self, manager):
-        super().__init__()
-        self.manager = manager
-        self.setWindowTitle("型号查询")
-        self.input_widgets = {}
-        self._setup_ui()
-
-    def _setup_ui(self):
-        widget = QWidget()
-        layout = QHBoxLayout()
-
-        # 左侧查询表单
-        form_group = QGroupBox("查询条件")
-        form_group.setStyleSheet("""
-            QGroupBox { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; font: bold 15px "Microsoft YaHei"; color: #1e293b; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); }
-            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; margin-left: 12px; padding: 4px 12px; background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #e5e7eb, stop:1 #f1f5f9); border-radius: 6px; color: #475569; }
-        """)
-        form_layout = QVBoxLayout()
-        form_layout.setSpacing(18)
-
-        fields = {
-            "model": {"label": "型号名称", "type": "text", "placeholder": "输入型号关键字"},
-            "vendor": {"label": "制造商", "type": "combo", "items": ["全部", "Intel", "AMD", "ARM"]}
-        }
-        for field, config in fields.items():
-            hbox = QHBoxLayout()
-            hbox.setSpacing(12)
-            label = QLabel(f"{config['label']}：")
-            label.setStyleSheet("font-size: 14px; color: #475569; font-weight: 600;")
-            label.setFixedWidth(90)
-            label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-            if config["type"] == "text":
-                widget = QLineEdit()
-                widget.setPlaceholderText(config["placeholder"])
-                widget.setStyleSheet("""
-                    QLineEdit { padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 14px; background: #f8fafc; color: #1e293b; transition: all 0.2s ease; }
-                    QLineEdit:hover { border: 1px solid #93c5fd; background: #f9fafb; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
-                    QLineEdit:focus { border: 1px solid #3b82f6; background: #ffffff; box-shadow: 0 0 10px rgba(59, 130, 246, 0.2); }
-                """)
-                widget.setMinimumWidth(200)
-            elif config["type"] == "combo":
-                widget = QComboBox()
-                widget.addItems(config["items"])
-                widget.setStyleSheet("""
-                    QComboBox { padding: 10px 36px 10px 14px; border: 1px solid #d1d5db; border-radius: 12px; font-size: 14px; background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #fefefe, stop:1 #f1f5f9); color: #1e293b; transition: all 0.3s ease-in-out; }
-                    QComboBox:hover { border: 1px solid #60a5fa; background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f9fafb, stop:1 #e5e7eb); box-shadow: 0 3px 10px rgba(96, 165, 250, 0.15); }
-                    QComboBox:on { border: 1px solid #2563eb; background: #eff6ff; box-shadow: 0 0 12px rgba(37, 99, 235, 0.25); }
-                    QComboBox::drop-down { border: none; width: 36px; background: transparent; }
-                    QComboBox::down-arrow { width: 14px; height: 14px; border-left: 7px solid transparent; border-right: 7px solid transparent; border-top: 10px solid #374151; }
-                    QComboBox QAbstractItemView { border: 1px solid #d1d5db; border-radius: 10px; background: #ffffff; color: #1e293b; padding: 8px; selection-background-color: #bfdbfe; selection-color: #1e293b; outline: none; max-height: 180px; }
-                    QComboBox QAbstractItemView::item { padding: 12px 18px; min-height: 38px; border-radius: 6px; }
-                    QComboBox QAbstractItemView::item:hover { background: #f1f5f9; color: #1e293b; }
-                    QComboBox QAbstractItemView::item:selected { background: #bfdbfe; color: #1e293b; font-weight: bold; }
-                """)
-                widget.setMinimumWidth(200)
-                widget.setMaxVisibleItems(8)
-            self.input_widgets[field] = widget
-            hbox.addWidget(label)
-            hbox.addWidget(widget)
-            hbox.addStretch()
-            form_layout.addLayout(hbox)
-
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(12)
-        self.btn_query = QPushButton("查询")
-        self.btn_query.setStyleSheet("""
-            QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3b82f6, stop:1 #2563eb); color: white; padding: 10px 24px; border: none; border-radius: 10px; font: bold 14px "Microsoft YaHei"; transition: all 0.2s ease; }
-            QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #60a5fa, stop:1 #1d4ed8); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
-        """)
-        button_layout.addWidget(self.btn_query)
-
-        self.btn_clear = QPushButton("清除")
-        self.btn_clear.setStyleSheet("""
-            QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6b7280, stop:1 #4b5563); color: white; padding: 10px 24px; border: none; border-radius: 10px; font: bold 14px "Microsoft YaHei"; transition: all 0.2s ease; }
-            QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7c8899, stop:1 #374151); box-shadow: 0 4px 12px rgba(71, 85, 105, 0.3); }
-        """)
-        button_layout.addWidget(self.btn_clear)
-        button_layout.addStretch()
-
-        form_layout.addLayout(button_layout)
-        form_layout.addStretch()
-        form_group.setLayout(form_layout)
-        form_group.setFixedWidth(360)
-        layout.addWidget(form_group)
-
-        # 右侧区域
-        self.stacked_widget = QStackedWidget()
-        no_data_widget = QWidget()
-        no_data_layout = QVBoxLayout()
-        no_data_layout.addStretch()
-        no_data_label = QLabel("暂无数据")
-        no_data_label.setAlignment(Qt.AlignCenter)
-        no_data_label.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))
-        no_data_label.setStyleSheet("color: #9ca3af;")
-        no_data_layout.addWidget(no_data_label)
-        no_data_layout.addStretch()
-        no_data_widget.setLayout(no_data_layout)
-        self.stacked_widget.addWidget(no_data_widget)
-
-        self.table = QTableWidget()
-        self._init_table(self.table)
-        self.stacked_widget.addWidget(self.table)
-        self.stacked_widget.setCurrentIndex(0)
-
-        layout.addWidget(self.stacked_widget, stretch=1)
-        widget.setLayout(layout)
-        widget.setStyleSheet("background: #f9fafb;")
-        self.setCentralWidget(widget)
-        self.resize(1280, 720)
-        self.setMinimumSize(800, 600)
-
-        # 连接信号
-        self.btn_query.clicked.connect(self._on_query)
-        self.btn_clear.clicked.connect(self._on_clear)
-
-    def _init_table(self, table):
-        table.setRowCount(0)
-        table.setColumnCount(0)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        table.horizontalHeader().setMinimumSectionSize(150)
-        table.verticalHeader().setMinimumSectionSize(40)
-        table.setStyleSheet("""
-            QTableWidget { border: 1px solid #e5e7eb; border-radius: 8px; background: #ffffff; font-size: 14px; }
-            QHeaderView::section { background: #f3f4f6; padding: 12px; border: 1px solid #e5e7eb; font: bold 14px "Microsoft YaHei"; color: #374151; }
-            QTableWidget::item { padding: 10px; }
-        """)
-
-    @Slot()
-    def _on_query(self):
-        conditions = {}
-        for field, widget in self.input_widgets.items():
-            if isinstance(widget, QLineEdit):
-                conditions[field] = widget.text()
-            elif isinstance(widget, QComboBox):
-                conditions[field] = widget.currentText()
-        sample_data = [
-            ["i7-12700K", "Intel", "12", "3.6GHz", "125W"],
-            ["Ryzen 9 5950X", "AMD", "16", "3.4GHz", "105W"],
-            ["Cortex-A78", "ARM", "8", "2.8GHz", "35W"]
-        ]
-        self._update_table(sample_data)
-
-    @Slot()
-    def _on_clear(self):
-        for widget in self.input_widgets.values():
-            if isinstance(widget, QLineEdit):
-                widget.clear()
-            elif isinstance(widget, QComboBox):
-                widget.setCurrentIndex(0)
-        self._update_table([])
-
-    def _update_table(self, data):
-        if not data:
-            self.stacked_widget.setCurrentIndex(0)
+    def reselect_filter(self, param):
+        if param == "品牌":
+            menu = MultiSelectMenu(options[param], self.filters.get(param, []), 
+                                  lambda selected, p=param: self.apply_filter(p, selected), self)
         else:
-            self.stacked_widget.setCurrentIndex(1)
-            headers = ["型号", "制造商", "核心数", "基础频率", "TDP"]
-            self.table.setRowCount(len(headers))
-            self.table.setColumnCount(len(data))
-            self.table.setVerticalHeaderLabels(headers)
-            self.table.setHorizontalHeaderLabels(["" for _ in range(len(data))])
-            self.table.horizontalHeader().hide()
-            for col, row_data in enumerate(data):
-                for row, value in enumerate(row_data):
-                    item = QTableWidgetItem(value)
-                    item.setTextAlignment(Qt.AlignCenter)
-                    if "Intel" in value:
-                        item.setBackground(QColor("#dbeafe"))
-                    elif "AMD" in value:
-                        item.setBackground(QColor("#fee2e2"))
-                    elif "ARM" in value:
-                        item.setBackground(QColor("#d1fae5"))
-                    elif "GHz" in value:
-                        item.setBackground(QColor("#fef3c7"))
-                    self.table.setItem(row, col, item)
+            menu = SingleSelectMenu(options[param], self.filters.get(param, []), 
+                                   lambda selected, p=param: self.apply_filter(p, selected), self)
+        menu.exec(QCursor.pos())
 
-    def set_data(self, data):
-        pass
+    def remove_filter(self, param):
+        if param in self.filters:
+            del self.filters[param]
+            self.update_filters_display()
+            self.generate_comparison()
 
+    def generate_comparison(self):
+        filtered_computers = {}
+        for name, attrs in computers_pool.items():
+            match = True
+            for param, values in self.filters.items():
+                if attrs[param] not in values:
+                    match = False
+                    break
+            if match:
+                filtered_computers[name] = attrs
 
+        # 设置纵向表格
+        self.model.clear()
+        headers = ["参数"] + list(filtered_computers.keys())
+        self.model.setHorizontalHeaderLabels(headers)
+        attrs_order = ["品牌", "CPU", "内存", "硬盘", "显卡", "价格"]
+        for row, attr in enumerate(attrs_order):
+            items = [QStandardItem(attr)]
+            items[0].setFont(QFont("Arial", 10, QFont.Bold))
+            items[0].setForeground(QColor("#333333"))
+            for comp_attrs in filtered_computers.values():
+                items.append(QStandardItem(comp_attrs.get(attr, "")))
+            self.model.appendRow(items)
 
+        # 高亮差异值
+        self.highlight_differences()
 
-
-class SpecQueryWindow(QMainWindow):
-    def __init__(self, manager):
-        super().__init__()
-        self.manager = manager
-        self.setWindowTitle("规格查询")
-        self.input_widgets = {}
-        self._setup_ui()
-
-    def _setup_ui(self):
-        widget = QWidget()
-        layout = QHBoxLayout()
-
-        # 左侧查询表单
-        form_group = QGroupBox("查询条件")
-        form_group.setStyleSheet("""
-            QGroupBox { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; font: bold 15px "Microsoft YaHei"; color: #1e293b; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); }
-            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; margin-left: 12px; padding: 4px 12px; background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #e5e7eb, stop:1 #f1f5f9); border-radius: 6px; color: #475569; }
-        """)
-        form_layout = QVBoxLayout()
-        form_layout.setSpacing(18)
-
-        fields = {
-            "cores": {"label": "核心数", "type": "text", "placeholder": "输入最小核心数"},
-            "tdp": {"label": "最大TDP", "type": "combo", "items": ["全部", "35W", "65W", "95W"]}
-        }
-        for field, config in fields.items():
-            hbox = QHBoxLayout()
-            hbox.setSpacing(12)
-            label = QLabel(f"{config['label']}：")
-            label.setStyleSheet("font-size: 14px; color: #475569; font-weight: 600;")
-            label.setFixedWidth(90)
-            label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-            if config["type"] == "text":
-                widget = QLineEdit()
-                widget.setPlaceholderText(config["placeholder"])
-                widget.setStyleSheet("""
-                    QLineEdit { padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 14px; background: #f8fafc; color: #1e293b; transition: all 0.2s ease; }
-                    QLineEdit:hover { border: 1px solid #93c5fd; background: #f9fafb; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
-                    QLineEdit:focus { border: 1px solid #3b82f6; background: #ffffff; box-shadow: 0 0 10px rgba(59, 130, 246, 0.2); }
-                """)
-                widget.setMinimumWidth(200)
-            elif config["type"] == "combo":
-                widget = QComboBox()
-                widget.addItems(config["items"])
-                widget.setStyleSheet("""
-                    QComboBox { padding: 10px 36px 10px 14px; border: 1px solid #d1d5db; border-radius: 12px; font-size: 14px; background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #fefefe, stop:1 #f1f5f9); color: #1e293b; transition: all 0.3s ease-in-out; }
-                    QComboBox:hover { border: 1px solid #60a5fa; background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f9fafb, stop:1 #e5e7eb); box-shadow: 0 3px 10px rgba(96, 165, 250, 0.15); }
-                    QComboBox:on { border: 1px solid #2563eb; background: #eff6ff; box-shadow: 0 0 12px rgba(37, 99, 235, 0.25); }
-                    QComboBox::drop-down { border: none; width: 36px; background: transparent; }
-                    QComboBox::down-arrow { width: 14px; height: 14px; border-left: 7px solid transparent; border-right: 7px solid transparent; border-top: 10px solid #374151; }
-                    QComboBox QAbstractItemView { border: 1px solid #d1d5db; border-radius: 10px; background: #ffffff; color: #1e293b; padding: 8px; selection-background-color: #bfdbfe; selection-color: #1e293b; outline: none; max-height: 180px; }
-                    QComboBox QAbstractItemView::item { padding: 12px 18px; min-height: 38px; border-radius: 6px; }
-                    QComboBox QAbstractItemView::item:hover { background: #f1f5f9; color: #1e293b; }
-                    QComboBox QAbstractItemView::item:selected { background: #bfdbfe; color: #1e293b; font-weight: bold; }
-                """)
-                widget.setMinimumWidth(200)
-                widget.setMaxVisibleItems(8)
-            self.input_widgets[field] = widget
-            hbox.addWidget(label)
-            hbox.addWidget(widget)
-            hbox.addStretch()
-            form_layout.addLayout(hbox)
-
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(12)
-        self.btn_query = QPushButton("查询")
-        self.btn_query.setStyleSheet("""
-            QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3b82f6, stop:1 #2563eb); color: white; padding: 10px 24px; border: none; border-radius: 10px; font: bold 14px "Microsoft YaHei"; transition: all 0.2s ease; }
-            QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #60a5fa, stop:1 #1d4ed8); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
-        """)
-        button_layout.addWidget(self.btn_query)
-
-        self.btn_clear = QPushButton("清除")
-        self.btn_clear.setStyleSheet("""
-            QPushButton { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6b7280, stop:1 #4b5563); color: white; padding: 10px 24px; border: none; border-radius: 10px; font: bold 14px "Microsoft YaHei"; transition: all 0.2s ease; }
-            QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7c8899, stop:1 #374151); box-shadow: 0 4px 12px rgba(71, 85, 105, 0.3); }
-        """)
-        button_layout.addWidget(self.btn_clear)
-        button_layout.addStretch()
-
-        form_layout.addLayout(button_layout)
-        form_layout.addStretch()
-        form_group.setLayout(form_layout)
-        form_group.setFixedWidth(360)
-        layout.addWidget(form_group)
-
-        # 右侧区域
-        self.stacked_widget = QStackedWidget()
-        no_data_widget = QWidget()
-        no_data_layout = QVBoxLayout()
-        no_data_layout.addStretch()
-        no_data_label = QLabel("暂无数据")
-        no_data_label.setAlignment(Qt.AlignCenter)
-        no_data_label.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))
-        no_data_label.setStyleSheet("color: #9ca3af;")
-        no_data_layout.addWidget(no_data_label)
-        no_data_layout.addStretch()
-        no_data_widget.setLayout(no_data_layout)
-        self.stacked_widget.addWidget(no_data_widget)
-
-        self.table = QTableWidget()
-        self._init_table(self.table)
-        self.stacked_widget.addWidget(self.table)
-        self.stacked_widget.setCurrentIndex(0)
-
-        layout.addWidget(self.stacked_widget, stretch=1)
-        widget.setLayout(layout)
-        widget.setStyleSheet("background: #f9fafb;")
-        self.setCentralWidget(widget)
-        self.resize(1280, 720)
-        self.setMinimumSize(800, 600)
-
-        # 连接信号
-        self.btn_query.clicked.connect(self._on_query)
-        self.btn_clear.clicked.connect(self._on_clear)
-
-    def _init_table(self, table):
-        table.setRowCount(0)
-        table.setColumnCount(0)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        table.horizontalHeader().setMinimumSectionSize(150)
-        table.verticalHeader().setMinimumSectionSize(40)
-        table.setStyleSheet("""
-            QTableWidget { border: 1px solid #e5e7eb; border-radius: 8px; background: #ffffff; font-size: 14px; }
-            QHeaderView::section { background: #f3f4f6; padding: 12px; border: 1px solid #e5e7eb; font: bold 14px "Microsoft YaHei"; color: #374151; }
-            QTableWidget::item { padding: 10px; }
-        """)
-
-    @Slot()
-    def _on_query(self):
-        conditions = {}
-        for field, widget in self.input_widgets.items():
-            if isinstance(widget, QLineEdit):
-                conditions[field] = widget.text()
-            elif isinstance(widget, QComboBox):
-                conditions[field] = widget.currentText()
-        sample_data = [
-            ["i5-12600K", "Intel", "10", "3.7GHz", "125W"],
-            ["Ryzen 7 5800X", "AMD", "8", "3.8GHz", "105W"],
-            ["Cortex-A76", "ARM", "4", "2.4GHz", "25W"]
-        ]
-        self._update_table(sample_data)
-
-    @Slot()
-    def _on_clear(self):
-        for widget in self.input_widgets.values():
-            if isinstance(widget, QLineEdit):
-                widget.clear()
-            elif isinstance(widget, QComboBox):
-                widget.setCurrentIndex(0)
-        self._update_table([])
-
-    def _update_table(self, data):
-        if not data:
-            self.stacked_widget.setCurrentIndex(0)
-        else:
-            self.stacked_widget.setCurrentIndex(1)
-            headers = ["型号", "制造商", "核心数", "基础频率", "TDP"]
-            self.table.setRowCount(len(headers))
-            self.table.setColumnCount(len(data))
-            self.table.setVerticalHeaderLabels(headers)
-            self.table.setHorizontalHeaderLabels(["" for _ in range(len(data))])
-            self.table.horizontalHeader().hide()
-            for col, row_data in enumerate(data):
-                for row, value in enumerate(row_data):
-                    item = QTableWidgetItem(value)
-                    item.setTextAlignment(Qt.AlignCenter)
-                    if "Intel" in value:
-                        item.setBackground(QColor("#dbeafe"))
-                    elif "AMD" in value:
-                        item.setBackground(QColor("#fee2e2"))
-                    elif "ARM" in value:
-                        item.setBackground(QColor("#d1fae5"))
-                    elif "GHz" in value:
-                        item.setBackground(QColor("#fef3c7"))
-                    self.table.setItem(row, col, item)
-
-    def set_data(self, data):
-        pass
-
-
-
-
-
-
-
+    def highlight_differences(self):
+        if self.model.rowCount() == 0 or self.model.columnCount() <= 2:
+            return
+        
+        for row in range(self.model.rowCount()):
+            values = [self.model.item(row, col).text() for col in range(1, self.model.columnCount())]
+            if len(set(values)) > 1:
+                for col in range(1, self.model.columnCount()):
+                    self.model.item(row, col).setBackground(QColor("#FFFF99"))
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    app.setStyle("fusion")
-    palette = QPalette()
-    palette.setColor(QPalette.Window, QColor("#f0f2f5"))
-    palette.setColor(QPalette.WindowText, QColor("#1f2937"))
-    palette.setColor(QPalette.Base, QColor("#ffffff"))
-    palette.setColor(QPalette.AlternateBase, QColor("#f9fafb"))
-    palette.setColor(QPalette.Text, QColor("#374151"))
-    palette.setColor(QPalette.Button, QColor("#0078d4"))
-    palette.setColor(QPalette.ButtonText, QColor("#ffffff"))
-    palette.setColor(QPalette.Highlight, QColor("#dbeafe"))
-    app.setPalette(palette)
-    app.setFont(QFont("Microsoft YaHei", 12))
-    
-    manager = WindowManager()
-    manager.register_window("main", MainWindow, manager)
-    manager.register_window("model_query", ModelQueryWindow, manager)
-    manager.register_window("spec_query", SpecQueryWindow, manager)
-    
-    main_win = manager.get_window("main")
-    main_win.show()
-    QTimer.singleShot(50, lambda: (main_win.raise_(), main_win.activateWindow()))
-    manager.current_window = main_win
-    
+    app.setStyleSheet("""
+        QTableView { border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9; }
+        QLineEdit { padding: 5px; border: 1px solid #ddd; border-radius: 5px; }
+        QPushButton { padding: 2px; }
+        QPushButton:flat { background: none; border: none; }
+    """)
+    window = ComparisonWindow()
+    window.show()
     sys.exit(app.exec())
