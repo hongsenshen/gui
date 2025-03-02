@@ -333,3 +333,368 @@ if __name__ == "__main__":
     window = ComparisonWindow()
     window.show()
     sys.exit(app.exec())
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import sys
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QTableView, QMenu, QPushButton,
+    QCheckBox, QWidgetAction, QScrollArea, QHeaderView, QSizePolicy
+)
+from PySide6.QtGui import (
+    QStandardItemModel, QStandardItem, QColor, QFont, QCursor, QPalette, QAction
+)
+from PySide6.QtCore import Qt, QSize
+from functools import partial
+
+# 预定义电脑配置池
+computers_pool = {
+    "Dell XPS 13": {"品牌": "Dell", "CPU": "Intel i7-12700", "内存": "16GB", "硬盘": "512GB SSD", "显卡": "Intel Iris Xe",
+                    "价格": "12000"},
+    "HP Spectre x360": {"品牌": "HP", "CPU": "Intel i5-12350", "内存": "8GB", "硬盘": "256GB SSD", "显卡": "Intel UHD",
+                        "价格": "9000"},
+    "Lenovo ThinkPad X1": {"品牌": "Lenovo", "CPU": "AMD Ryzen 7", "内存": "32GB", "硬盘": "1TB SSD", "显卡": "AMD Radeon",
+                           "价格": "15000"},
+    "Dell Inspiron 15": {"品牌": "Dell", "CPU": "Intel i3-11150", "内存": "8GB", "硬盘": "1TB HDD", "显卡": "Intel UHD",
+                         "价格": "6000"}
+}
+
+# 可选参数（保持顺序）
+options_order = ["品牌", "CPU", "内存", "硬盘", "显卡"]
+options = {
+    "品牌": sorted(set(comp["品牌"] for comp in computers_pool.values())),
+    "CPU": sorted(set(comp["CPU"] for comp in computers_pool.values())),
+    "内存": ["8GB", "16GB", "32GB"],
+    "硬盘": ["256GB SSD", "512GB SSD", "1TB SSD", "1TB HDD"],
+    "显卡": ["Intel UHD", "Intel Iris Xe", "AMD Radeon"]
+}
+
+
+class MultiSelectMenu(QMenu):
+    def __init__(self, items, selected_items, callback, parent=None):
+        super().__init__(parent)
+        self.selected_items = selected_items.copy() if selected_items else []
+        self.callback = callback
+        self.setMinimumWidth(200)
+        self.checkboxes = {}
+
+        for item in items:
+            checkbox = QCheckBox(item)
+            checkbox.setChecked(item in self.selected_items)
+            self.checkboxes[item] = checkbox
+            # 改为使用 clicked 信号和 isChecked() 方法
+            checkbox.clicked.connect(lambda checked=False, i=item: self.toggle_item(i))  # 这里修改
+            widget_action = QWidgetAction(self)
+            widget_action.setDefaultWidget(checkbox)
+            self.addAction(widget_action)
+
+    def toggle_item(self, item):
+        checkbox = self.checkboxes[item]
+        if checkbox.isChecked():
+            if item not in self.selected_items:
+                self.selected_items.append(item)
+        else:
+            if item in self.selected_items:
+                self.selected_items.remove(item)
+        print(f"Updated selected_items: {self.selected_items}")
+        self.callback(self.selected_items.copy())  # 确保传递副本
+
+
+class SingleSelectMenu(QMenu):
+    def __init__(self, items, selected_items, callback, parent=None):
+        super().__init__(parent)
+        self.selected_items = selected_items.copy()
+        self.callback = callback
+        self.setMinimumWidth(180)
+        for item in items:
+            action = QAction(item, self, checkable=True)
+            action.setChecked(item in self.selected_items)
+            action.triggered.connect(partial(self.toggle_item, item))
+            self.addAction(action)
+        self.setStyleSheet("""
+            QMenu { 
+                background: #ffffff;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 6px;
+            }
+            QAction { 
+                padding: 8px 16px;
+                font: 12px 'Microsoft YaHei';
+            }
+        """)
+
+    def toggle_item(self, item, checked):
+        if checked:
+            self.selected_items = [item]
+        else:
+            self.selected_items.clear()
+        self.callback(self.selected_items.copy())
+
+
+class FilterTag(QWidget):
+    def __init__(self, param, values, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(32)
+        self.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.setStyleSheet("""
+            background: #2196F3;
+            border-radius: 16px;
+            padding: 0 8px;
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self.label = QPushButton(f"{param}: {', '.join(values)}")
+        self.label.setCursor(Qt.PointingHandCursor)
+        self.label.setStyleSheet("""
+            QPushButton { 
+                border: none; 
+                color: white;
+                font: 12px 'Microsoft YaHei';
+                padding: 0 4px;
+            }
+            QPushButton:hover { 
+                color: #BBDEFB; 
+            }
+        """)
+
+        self.close_btn = QPushButton("×")
+        self.close_btn.setStyleSheet("""
+            QPushButton {
+                font: bold 14px;
+                color: #FFCDD2;
+                padding: 0;
+                min-width: 20px;
+                max-width: 20px;
+            }
+            QPushButton:hover {
+                color: #FF5252;
+            }
+        """)
+        self.close_btn.setCursor(Qt.PointingHandCursor)
+        self.close_btn.setFixedSize(20, 20)
+
+        layout.addWidget(self.label)
+        layout.addWidget(self.close_btn)
+
+
+class ComparisonWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.filters = {}
+        self.init_ui()
+        self.setMinimumSize(800, 600)
+
+    def init_ui(self):
+        self.setWindowTitle("电脑配置对比工具")
+        self.setFont(QFont("Microsoft YaHei", 10))
+
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(12)
+
+        # 筛选条件容器
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFixedHeight(60)
+        scroll.setStyleSheet("""
+            QScrollArea { 
+                border: 2px solid #BBDEFB;
+                border-radius: 8px;
+                background: white;
+            }
+            QScrollArea > QWidget > QWidget { 
+                background: transparent; 
+            }
+        """)
+
+        self.filter_container = QWidget()
+        self.filter_container.setCursor(Qt.PointingHandCursor)
+        self.filter_layout = QHBoxLayout(self.filter_container)
+        self.filter_layout.setContentsMargins(8, 8, 8, 8)
+        self.filter_layout.setSpacing(8)
+
+        self.placeholder = QLabel("点击选择筛选条件")
+        self.placeholder.setStyleSheet("""
+            color: #90A4AE;
+            font: 14px 'Microsoft YaHei';
+            padding-left: 8px;
+        """)
+        self.filter_layout.addWidget(self.placeholder)
+        self.filter_layout.addStretch(1)
+
+        scroll.setWidget(self.filter_container)
+        main_layout.addWidget(scroll)
+
+        # 对比表格
+        self.model = QStandardItemModel()
+        self.table_view = QTableView()
+        self.table_view.setModel(self.model)
+        self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table_view.verticalHeader().setVisible(False)
+        self.table_view.setStyleSheet("""
+            QTableView { 
+                border: 1px solid #ddd; 
+                border-radius: 6px;
+                background: white;
+            }
+            QHeaderView::section { 
+                background: #f5f5f5; 
+                padding: 8px;
+                border: none;
+            }
+        """)
+        main_layout.addWidget(self.table_view)
+
+        # 事件绑定
+        self.filter_container.mousePressEvent = self.show_filter_menu
+
+    def show_filter_menu(self, event):
+        menu = QMenu(self)
+        menu.setFixedWidth(280)
+
+        for param in options_order:
+            action = QAction(f"▸ {param}", self)
+            current_values = self.filters.get(param, [])
+
+            # 使用partial解决闭包问题
+            callback = partial(self.apply_filter, param)
+
+            if param == "品牌":
+                submenu = MultiSelectMenu(
+                    options[param],
+                    current_values,
+                    callback
+                )
+            else:
+                submenu = SingleSelectMenu(
+                    options[param],
+                    current_values,
+                    callback
+                )
+
+            action.setMenu(submenu)
+            menu.addAction(action)
+
+        menu.exec(QCursor.pos())
+
+    def apply_filter(self, param, selected):
+        print(f"Applying filter: {param} = {selected}")
+
+        # 确保品牌参数总是存储列表形式
+        if param == "品牌":
+            self.filters[param] = selected.copy() if selected else []
+        else:
+            # 其他参数保持单选逻辑
+            self.filters[param] = selected[0] if selected else None
+
+        self.update_filter_tags()
+        self.generate_comparison()
+
+    def update_filter_tags(self):
+        # 修改标签创建逻辑确保显示品牌多选值
+        for param in options_order:
+            if param in self.filters:
+                values = self.filters[param]
+                if param == "品牌":
+                    display_values = values  # 直接显示列表
+                else:
+                    display_values = [values] if values else []
+
+                if display_values:
+                    tag = FilterTag(param, display_values)
+
+                    tag = FilterTag(param, display_values)
+                    tag.close_btn.clicked.connect(partial(self.remove_filter, param))
+                    tag.label.clicked.connect(partial(self.reselect_filter, param))
+                    self.filter_layout.insertWidget(0, tag)
+
+        # 更新占位符状态
+        self.placeholder.setVisible(len(self.filters) == 0)
+        self.filter_container.updateGeometry()
+
+    def reselect_filter(self, param):
+        current_values = self.filters.get(param, [])
+        callback = partial(self.apply_filter, param)
+
+        if param == "品牌":
+            menu = MultiSelectMenu(options[param], current_values, callback)
+        else:
+            menu = SingleSelectMenu(options[param], current_values, callback)
+        menu.exec(QCursor.pos())
+
+    def remove_filter(self, param):
+        if param in self.filters:
+            del self.filters[param]
+            self.update_filter_tags()
+            self.generate_comparison()
+
+    def generate_comparison(self):
+        filtered = {}
+        for name, attrs in computers_pool.items():
+            match = True
+            for param, values in self.filters.items():
+                if isinstance(values, list):
+                    if attrs[param] not in values:
+                        match = False
+                        break
+                else:
+                    if attrs[param] != values:
+                        match = False
+                        break
+            if match:
+                filtered[name] = attrs
+
+        self.model.clear()
+        if not filtered:
+            return
+
+        headers = ["参数"] + list(filtered.keys())
+        self.model.setHorizontalHeaderLabels(headers)
+
+        attrs_order = ["品牌", "CPU", "内存", "硬盘", "显卡", "价格"]
+        for attr in attrs_order:
+            row = [QStandardItem(attr)]
+            row[0].setFont(QFont("Microsoft YaHei", 11, QFont.Bold))
+            row[0].setForeground(QColor("#333333"))
+
+            for comp in filtered.values():
+                item = QStandardItem(comp[attr])
+                item.setTextAlignment(Qt.AlignCenter)
+                row.append(item)
+
+            self.model.appendRow(row)
+
+        self.highlight_differences()
+
+    def highlight_differences(self):
+        for row in range(self.model.rowCount()):
+            values = [self.model.item(row, col).text() for col in range(1, self.model.columnCount())]
+            if len(set(values)) > 1:
+                for col in range(1, self.model.columnCount()):
+                    self.model.item(row, col).setBackground(QColor("#fff3cd"))
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    window = ComparisonWindow()
+    window.show()
+    sys.exit(app.exec())
