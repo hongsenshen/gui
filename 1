@@ -38,6 +38,398 @@ class MultiSelectMenu(QMenu):
             checkbox = QCheckBox(item)
             checkbox.setChecked(item in self.selected_items)
             self.checkboxes[item] = checkbox
+            checkbox.stateChanged.connect(lambda state, i=item: self.toggle_item(state, i))
+            widget_action = QWidgetAction(self)
+            widget_action.setDefaultWidget(checkbox)
+            self.addAction(widget_action)
+        self.setStyleSheet("""
+            QMenu { 
+                background: #ffffff;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 8px;
+            }
+            QCheckBox { 
+                padding: 6px;
+                font: 12px 'Microsoft YaHei';
+            }
+        """)
+
+    def toggle_item(self, state, item):
+        print(f"Before toggle - Item: {item}, State: {state}, Current selected_items: {self.selected_items}")
+        if state == Qt.Checked:
+            if item not in self.selected_items:
+                self.selected_items.append(item)
+        elif state == Qt.Unchecked:
+            if item in self.selected_items:
+                self.selected_items.remove(item)
+        print(f"After toggle - Updated selected_items: {self.selected_items}")
+        self.callback(self.selected_items)
+
+class SingleSelectMenu(QMenu):
+    def __init__(self, items, selected_items, callback, parent=None):
+        super().__init__(parent)
+        self.selected_items = selected_items.copy() if selected_items else []
+        self.callback = callback
+        self.setMinimumWidth(180)
+        for item in items:
+            action = QAction(item, self, checkable=True)
+            action.setChecked(item in self.selected_items)
+            action.triggered.connect(lambda checked, i=item: self.toggle_item(i, checked))
+            self.addAction(action)
+        self.setStyleSheet("""
+            QMenu { 
+                background: #ffffff;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 6px;
+            }
+            QAction { 
+                padding: 8px 16px;
+                font: 12px 'Microsoft YaHei';
+            }
+        """)
+
+    def toggle_item(self, item, checked):
+        print(f"Toggle single item: {item}, checked: {checked}")
+        if checked:
+            self.selected_items = [item]
+        else:
+            self.selected_items.clear()
+        for action in self.actions():
+            action.setChecked(action.text() in self.selected_items)
+        self.callback(self.selected_items if checked else [])
+
+class FilterTag(QWidget):
+    def __init__(self, param, values, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(32)
+        self.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.setStyleSheet("""
+            background: #2196F3;
+            border-radius: 16px;
+            padding: 0 8px;
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self.label = QPushButton(f"{param}: {', '.join(values)}")
+        self.label.setCursor(Qt.PointingHandCursor)
+        self.label.setStyleSheet("""
+            QPushButton { 
+                border: none; 
+                color: white;
+                font: 12px 'Microsoft YaHei';
+                padding: 0 4px;
+            }
+            QPushButton:hover { 
+                color: #BBDEFB; 
+            }
+        """)
+
+        self.close_btn = QPushButton("×")
+        self.close_btn.setStyleSheet("""
+            QPushButton {
+                font: bold 14px;
+                color: #FFCDD2;
+                padding: 0;
+                min-width: 20px;
+                max-width: 20px;
+            }
+            QPushButton:hover {
+                color: #FF5252;
+            }
+        """)
+        self.close_btn.setCursor(Qt.PointingHandCursor)
+        self.close_btn.setFixedSize(20, 20)
+
+        layout.addWidget(self.label)
+        layout.addWidget(self.close_btn)
+
+class ComparisonWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.filters = {}
+        self.init_ui()
+        self.setMinimumSize(800, 600)
+
+    def init_ui(self):
+        self.setWindowTitle("电脑配置对比工具")
+        self.setFont(QFont("Microsoft YaHei", 10))
+
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setContentsMargins(12, 12, 12, 12)
+        main_layout.setSpacing(12)
+
+        # 筛选条件容器
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFixedHeight(60)
+        scroll.setStyleSheet("""
+            QScrollArea { 
+                border: 2px solid #BBDEFB;
+                border-radius: 8px;
+                background: white;
+            }
+            QScrollArea > QWidget > QWidget { 
+                background: transparent; 
+            }
+        """)
+
+        self.filter_container = QWidget()
+        self.filter_container.setCursor(Qt.PointingHandCursor)
+        self.filter_layout = QHBoxLayout(self.filter_container)
+        self.filter_layout.setContentsMargins(8, 8, 8, 8)
+        self.filter_layout.setSpacing(8)
+
+        self.placeholder = QLabel("点击选择筛选条件")
+        self.placeholder.setStyleSheet("""
+            color: #90A4AE;
+            font: 14px 'Microsoft YaHei';
+            padding-left: 8px;
+        """)
+        self.filter_layout.addWidget(self.placeholder)
+
+        # 添加清空按钮
+        self.clear_btn = QPushButton("清空")
+        self.clear_btn.setStyleSheet("""
+            QPushButton {
+                background: #FF5252;
+                color: white;
+                border-radius: 16px;
+                padding: 4px 12px;
+                font: 12px 'Microsoft YaHei';
+            }
+            QPushButton:hover {
+                background: #FF1744;
+            }
+        """)
+        self.clear_btn.setFixedHeight(32)
+        self.clear_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_btn.clicked.connect(self.clear_filters)
+        self.clear_btn.setVisible(False)  # 初始隐藏
+        self.filter_layout.addWidget(self.clear_btn)
+
+        self.filter_layout.addStretch(1)
+
+        scroll.setWidget(self.filter_container)
+        main_layout.addWidget(scroll)
+
+        # 对比表格
+        self.model = QStandardItemModel()
+        self.table_view = QTableView()
+        self.table_view.setModel(self.model)
+        self.table_view.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table_view.verticalHeader().setVisible(False)
+        self.table_view.setStyleSheet("""
+            QTableView { 
+                border: 1px solid #ddd; 
+                border-radius: 6px;
+                background: white;
+            }
+            QHeaderView::section { 
+                background: #f5f5f5; 
+                padding: 8px;
+                border: none;
+            }
+        """)
+        main_layout.addWidget(self.table_view)
+
+        # 事件绑定
+        self.filter_container.mousePressEvent = self.show_filter_menu
+
+    def show_filter_menu(self, event):
+        menu = QMenu(self)
+        menu.setFixedWidth(280)
+
+        for param in options_order:
+            action = QAction(f"? {param}", self)
+            current_values = self.filters.get(param, [])
+            print(f"Showing menu for {param}, current values: {current_values}")
+
+            if param == "品牌":
+                submenu = MultiSelectMenu(
+                    options[param],
+                    current_values,
+                    lambda s, p=param: self.apply_filter(p, s)
+                )
+            else:
+                submenu = SingleSelectMenu(
+                    options[param],
+                    current_values,
+                    lambda s, p=param: self.apply_filter(p, s)
+                )
+
+            action.setMenu(submenu)
+            menu.addAction(action)
+
+        menu.exec(QCursor.pos())
+
+    def apply_filter(self, param, selected):
+        print(f"Applying filter: {param} = {selected}")
+
+        if selected:
+            if param == "品牌":
+                self.filters[param] = selected
+            else:
+                self.filters[param] = selected[0] if selected else None
+        elif param in self.filters:
+            del self.filters[param]
+
+        self.update_filter_tags()
+        self.generate_comparison()
+
+    def update_filter_tags(self):
+        # 清空所有旧标签（保留占位符、清空按钮和拉伸项）
+        for i in reversed(range(self.filter_layout.count())):
+            widget = self.filter_layout.itemAt(i).widget()
+            if isinstance(widget, FilterTag):
+                widget.deleteLater()
+
+        # 按固定顺序创建新标签
+        for param in options_order:
+            if param in self.filters:
+                values = self.filters[param]
+                if not isinstance(values, list):
+                    values = [str(values)]
+                values = [v for v in values if v]
+                if values:
+                    tag = FilterTag(param, values)
+                    tag.close_btn.clicked.connect(lambda _, p=param: self.remove_filter(p))
+                    tag.label.clicked.connect(lambda _, p=param: self.reselect_filter(p))
+                    # 插入到清空按钮前（count() - 2）
+                    self.filter_layout.insertWidget(self.filter_layout.count() - 2, tag)
+
+        # 更新占位符和清空按钮显示
+        has_filters = len(self.filters) > 0
+        self.placeholder.setVisible(not has_filters)
+        self.clear_btn.setVisible(has_filters)
+        self.filter_container.updateGeometry()
+
+    def reselect_filter(self, param):
+        current_values = self.filters.get(param, [])
+        print(f"Reselecting filter for {param}, current values: {current_values}")
+
+        if param == "品牌":
+            menu = MultiSelectMenu(options[param], current_values,
+                                   lambda s: self.apply_filter(param, s))
+        else:
+            menu = SingleSelectMenu(options[param], current_values,
+                                    lambda s: self.apply_filter(param, s))
+        menu.exec(QCursor.pos())
+
+    def remove_filter(self, param):
+        if param in self.filters:
+            del self.filters[param]
+            self.update_filter_tags()
+            self.generate_comparison()
+
+    def clear_filters(self):
+        self.filters.clear()
+        self.update_filter_tags()
+        self.generate_comparison()
+
+    def generate_comparison(self):
+        filtered = {}
+        for name, attrs in computers_pool.items():
+            match = True
+            for param, values in self.filters.items():
+                if isinstance(values, list):
+                    if attrs[param] not in values:
+                        match = False
+                        break
+                else:
+                    if attrs[param] != values:
+                        match = False
+                        break
+            if match:
+                filtered[name] = attrs
+
+        self.model.clear()
+        if not filtered:
+            return
+
+        headers = ["参数"] + list(filtered.keys())
+        self.model.setHorizontalHeaderLabels(headers)
+
+        attrs_order = ["品牌", "CPU", "内存", "硬盘", "显卡", "价格"]
+        for attr in attrs_order:
+            row = [QStandardItem(attr)]
+            row[0].setFont(QFont("Microsoft YaHei", 11, QFont.Bold))
+            row[0].setForeground(QColor("#333333"))
+
+            for comp in filtered.values():
+                item = QStandardItem(comp[attr])
+                item.setTextAlignment(Qt.AlignCenter)
+                row.append(item)
+
+            self.model.appendRow(row)
+
+        self.highlight_differences()
+
+    def highlight_differences(self):
+        for row in range(self.model.rowCount()):
+            values = [self.model.item(row, col).text() for col in range(1, self.model.columnCount())]
+            if len(set(values)) > 1:
+                for col in range(1, self.model.columnCount()):
+                    self.model.item(row, col).setBackground(QColor("#fff3cd"))
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    window = ComparisonWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+
+
+
+
+import sys
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QTableView, QMenu, QPushButton,
+    QCheckBox, QWidgetAction, QScrollArea, QHeaderView, QSizePolicy
+)
+from PySide6.QtGui import (
+    QStandardItemModel, QStandardItem, QColor, QFont, QCursor, QPalette, QAction
+)
+from PySide6.QtCore import Qt, QSize
+
+# 预定义电脑配置池
+computers_pool = {
+    "Dell XPS 13": {"品牌": "Dell", "CPU": "Intel i7-12700", "内存": "16GB", "硬盘": "512GB SSD", "显卡": "Intel Iris Xe", "价格": "12000"},
+    "HP Spectre x360": {"品牌": "HP", "CPU": "Intel i5-12350", "内存": "8GB", "硬盘": "256GB SSD", "显卡": "Intel UHD", "价格": "9000"},
+    "Lenovo ThinkPad X1": {"品牌": "Lenovo", "CPU": "AMD Ryzen 7", "内存": "32GB", "硬盘": "1TB SSD", "显卡": "AMD Radeon", "价格": "15000"},
+    "Dell Inspiron 15": {"品牌": "Dell", "CPU": "Intel i3-11150", "内存": "8GB", "硬盘": "1TB HDD", "显卡": "Intel UHD", "价格": "6000"}
+}
+
+# 可选参数（保持顺序）
+options_order = ["品牌", "CPU", "内存", "硬盘", "显卡"]
+options = {
+    "品牌": sorted(set(comp["品牌"] for comp in computers_pool.values())),
+    "CPU": sorted(set(comp["CPU"] for comp in computers_pool.values())),
+    "内存": ["8GB", "16GB", "32GB"],
+    "硬盘": ["256GB SSD", "512GB SSD", "1TB SSD", "1TB HDD"],
+    "显卡": ["Intel UHD", "Intel Iris Xe", "AMD Radeon"]
+}
+
+class MultiSelectMenu(QMenu):
+    def __init__(self, items, selected_items, callback, parent=None):
+        super().__init__(parent)
+        self.selected_items = selected_items.copy() if selected_items else []
+        self.callback = callback
+        self.setMinimumWidth(200)
+        self.checkboxes = {}
+        for item in items:
+            checkbox = QCheckBox(item)
+            checkbox.setChecked(item in self.selected_items)
+            self.checkboxes[item] = checkbox
             # 确保信号正确绑定
             checkbox.stateChanged.connect(lambda state, i=item: self.toggle_item(state, i))
             widget_action = QWidgetAction(self)
