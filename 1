@@ -1,3 +1,553 @@
+您的问题与之前相同，我理解您可能希望进一步探讨或确认页面销毁机制的实现。基于之前的回答，我已经提供了使用 QStackedWidget 时通过懒加载和 LRU（最近最少使用）缓存来实现页面销毁的方案。为了避免重复，我将从另一个角度优化页面销毁机制，重点解决以下问题：
+动态页面管理：支持手动销毁特定页面，而不是仅依赖 LRU。
+内存释放确认：确保页面销毁后内存被正确释放。
+用户控制：允许用户选择销毁页面，提升交互性。
+以下是新的优化方案，基于之前的代码添加了手动销毁功能和内存管理改进。
+优化后的页面销毁机制设计
+目标
+懒加载：页面仅在首次访问时创建。
+缓存限制：限制缓存页面数，自动销毁最旧页面。
+手动销毁：提供接口允许用户或系统手动销毁特定页面。
+内存释放：确保销毁后内存被正确回收。
+实现步骤
+使用 QStackedWidget 管理页面，但将页面实例存储在独立的缓存中。
+引入 OrderedDict 实现 LRU 缓存，自动移除超限页面。
+添加手动销毁功能，通过侧边栏按钮或上下文菜单触发。
+使用 deleteLater() 和垃圾回收确认内存释放。
+优化后的完整代码
+model.py
+python
+class SystemModel:
+    def __init__(self):
+        self.users = {"admin": "123456"}
+        self.cpu_models = ["Intel i9-13900K", "AMD Ryzen 9 7950X", "Intel i7-13700K", "AMD Ryzen 7 7700X", "Intel i5-13600K", "AMD Ryzen 5 7600X"]
+        self.cpu_specs = {
+            "Intel i9-13900K": {"Cores": 24, "Threads": 32, "Base Clock": "3.0 GHz", "Boost Clock": "5.8 GHz", "Cache": "36 MB", "TDP": "125 W"},
+            "AMD Ryzen 9 7950X": {"Cores": 16, "Threads": 32, "Base Clock": "4.5 GHz", "Boost Clock": "5.7 GHz", "Cache": "80 MB", "TDP": "170 W"},
+            "Intel i7-13700K": {"Cores": 16, "Threads": 24, "Base Clock": "3.4 GHz", "Boost Clock": "5.4 GHz", "Cache": "30 MB", "TDP": "125 W"},
+            "AMD Ryzen 7 7700X": {"Cores": 8, "Threads": 16, "Base Clock": "4.5 GHz", "Boost Clock": "5.4 GHz", "Cache": "40 MB", "TDP": "105 W"},
+            "Intel i5-13600K": {"Cores": 14, "Threads": 20, "Base Clock": "3.5 GHz", "Boost Clock": "5.1 GHz", "Cache": "24 MB", "TDP": "125 W"},
+            "AMD Ryzen 5 7600X": {"Cores": 6, "Threads": 12, "Base Clock": "4.7 GHz", "Boost Clock": "5.3 GHz", "Cache": "38 MB", "TDP": "105 W"},
+        }
+        self.server_data = {
+            "Intel i9-13900K": {"CPU Usage": "45%", "Memory": "16 GB", "Latency": "5 ms", "Disk I/O": "120 MB/s", "Network": "1 Gbps"},
+            "AMD Ryzen 9 7950X": {"CPU Usage": "60%", "Memory": "32 GB", "Latency": "4 ms", "Disk I/O": "200 MB/s", "Network": "2 Gbps"},
+            "Intel i7-13700K": {"CPU Usage": "35%", "Memory": "12 GB", "Latency": "6 ms", "Disk I/O": "100 MB/s", "Network": "800 Mbps"},
+            "AMD Ryzen 7 7700X": {"CPU Usage": "50%", "Memory": "24 GB", "Latency": "3 ms", "Disk I/O": "150 MB/s", "Network": "1.5 Gbps"},
+            "Intel i5-13600K": {"CPU Usage": "40%", "Memory": "8 GB", "Latency": "7 ms", "Disk I/O": "90 MB/s", "Network": "700 Mbps"},
+            "AMD Ryzen 5 7600X": {"CPU Usage": "55%", "Memory": "16 GB", "Latency": "5 ms", "Disk I/O": "130 MB/s", "Network": "1 Gbps"},
+        }
+        self.virtualization_data = {
+            "Intel i9-13900K": {"VM Count": "10", "vCPU Usage": "50%", "Memory Usage": "12 GB", "IOPS": "5000"},
+            "AMD Ryzen 9 7950X": {"VM Count": "15", "vCPU Usage": "65%", "Memory Usage": "24 GB", "IOPS": "7000"},
+            "Intel i7-13700K": {"VM Count": "8", "vCPU Usage": "40%", "Memory Usage": "10 GB", "IOPS": "4000"},
+            "AMD Ryzen 7 7700X": {"VM Count": "12", "vCPU Usage": "55%", "Memory Usage": "18 GB", "IOPS": "6000"},
+            "Intel i5-13600K": {"VM Count": "6", "vCPU Usage": "45%", "Memory Usage": "6 GB", "IOPS": "3000"},
+            "AMD Ryzen 5 7600X": {"VM Count": "9", "vCPU Usage": "60%", "Memory Usage": "14 GB", "IOPS": "4500"},
+        }
+
+    def validate_login(self, username, password):
+        return username in self.users and self.users[username] == password
+
+    def get_cpu_specs(self, cpu_model):
+        return self.cpu_specs.get(cpu_model, {})
+
+    def get_server_data(self, cpu_model):
+        return self.server_data.get(cpu_model, {})
+
+    def get_virtualization_data(self, cpu_model):
+        return self.virtualization_data.get(cpu_model, {})
+
+    def update_server_data(self, cpu_model, key, value):
+        if cpu_model in self.server_data:
+            self.server_data[cpu_model][key] = value
+views.py
+python
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QComboBox, 
+                               QPushButton, QTableWidget, QTableWidgetItem, QLabel, 
+                               QLineEdit, QFrame, QMessageBox, QSpacerItem, QSizePolicy, QStackedWidget)
+from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtGui import QIcon
+
+# 全局样式
+GLOBAL_STYLES = {
+    "button_primary": "padding: 10px; background-color: #2196F3; color: white;",
+    "button_action": "padding: 5px; background-color: #4CAF50; color: white;",
+    "button_danger": "padding: 5px; background-color: #F44336; color: white;",
+    "table": "border: 1px solid #ccc; padding: 5px;",
+    "sidebar": "background-color: #f0f0f0; border-right: 1px solid #ccc;"
+}
+
+class LoginWidget(QWidget):
+    login_signal = Signal(str, str)
+
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(20, 20, 20, 20)
+        self.username_input = QLineEdit(self)
+        self.username_input.setPlaceholderText("Username")
+        self.password_input = QLineEdit(self)
+        self.password_input.setPlaceholderText("Password")
+        self.password_input.setEchoMode(QLineEdit.Password)
+        self.login_btn = QPushButton("Login")
+        self.login_btn.setStyleSheet(GLOBAL_STYLES["button_action"])
+        layout.addWidget(self.username_input)
+        layout.addWidget(self.password_input)
+        layout.addWidget(self.login_btn)
+        layout.addStretch()
+        self.setLayout(layout)
+        self.login_btn.clicked.connect(self.emit_login)
+
+    @Slot()
+    def emit_login(self):
+        self.login_signal.emit(self.username_input.text(), self.password_input.text())
+
+class MainWindow(QMainWindow):
+    def __init__(self, username):
+        super().__init__()
+        self.setWindowTitle("Information Query System")
+        self.resize(1200, 800)
+        self.username = username
+        self.init_ui()
+
+    def init_ui(self):
+        title_bar = QWidget()
+        title_layout = QHBoxLayout()
+        title_bar.setFixedHeight(60)
+        title_bar.setStyleSheet("background-color: #2E2E2E; color: white; padding: 5px;")
+        logo_label = QLabel("Logo")
+        user_label = QLabel(f"User: {self.username}")
+        self.logout_btn = QPushButton("Logout")
+        self.logout_btn.setStyleSheet(GLOBAL_STYLES["button_danger"])
+        title_layout.addWidget(logo_label)
+        title_layout.addStretch()
+        title_layout.addWidget(user_label)
+        title_layout.addWidget(self.logout_btn)
+        title_bar.setLayout(title_layout)
+
+        main_widget = QWidget()
+        main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+
+        self.sidebar = QFrame()
+        self.sidebar.setFixedWidth(200)
+        self.sidebar.setStyleSheet(GLOBAL_STYLES["sidebar"])
+        sidebar_layout = QVBoxLayout()
+        sidebar_layout.setAlignment(Qt.AlignCenter)
+
+        self.cpu_btn = QPushButton("CPU Specs")
+        self.cpu_btn.setIcon(QIcon("cpu_icon.png"))
+        self.cpu_btn.setIconSize(Qt.QSize(24, 24))
+        self.server_btn = QPushButton("Server Data")
+        self.virtual_btn = QPushButton("Virtualization Perf")
+        self.clear_cache_btn = QPushButton("Clear Cache")  # 新增清理缓存按钮
+        for btn in [self.cpu_btn, self.server_btn, self.virtual_btn]:
+            btn.setStyleSheet(GLOBAL_STYLES["button_primary"] + " margin: 5px; text-align: left;")
+        self.clear_cache_btn.setStyleSheet(GLOBAL_STYLES["button_danger"] + " margin: 5px;")
+        
+        self.toggle_btn = QPushButton("<<")
+        self.toggle_btn.setStyleSheet(GLOBAL_STYLES["button_primary"] + " border: none;")
+        self.toggle_btn.setFixedWidth(20)
+        toggle_layout = QHBoxLayout()
+        toggle_layout.addStretch()
+        toggle_layout.addWidget(self.toggle_btn)
+
+        sidebar_layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        sidebar_layout.addWidget(self.cpu_btn)
+        sidebar_layout.addWidget(self.server_btn)
+        sidebar_layout.addWidget(self.virtual_btn)
+        sidebar_layout.addWidget(self.clear_cache_btn)
+        sidebar_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Fixed))
+        sidebar_layout.addLayout(toggle_layout)
+        sidebar_layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        self.sidebar.setLayout(sidebar_layout)
+
+        self.content_stack = QStackedWidget()
+
+        main_layout.addWidget(self.sidebar)
+        main_layout.addWidget(self.content_stack)
+        main_widget.setLayout(main_layout)
+
+        central_layout = QVBoxLayout()
+        central_layout.addWidget(title_bar)
+        central_layout.addWidget(main_widget)
+        central_widget = QWidget()
+        central_widget.setLayout(central_layout)
+        self.setCentralWidget(central_widget)
+
+    def toggle_sidebar(self):
+        if self.sidebar.width() > 50:
+            self.sidebar.setFixedWidth(50)
+            self.toggle_btn.setText(">>")
+        else:
+            self.sidebar.setFixedWidth(200)
+            self.toggle_btn.setText("<<")
+
+class CPUSpecsWidget(QWidget):
+    query_signal = Signal(str)
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QHBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        left_widget = QWidget()
+        self.left_layout = QVBoxLayout()
+        self.left_layout.setSpacing(5)
+        self.combos = []
+        for _ in range(6):
+            self.add_combo()
+        self.add_btn = QPushButton("+")
+        self.remove_btn = QPushButton("-")
+        for btn in [self.add_btn, self.remove_btn]:
+            btn.setStyleSheet(GLOBAL_STYLES["button_action"])
+        self.left_layout.addWidget(self.add_btn)
+        self.left_layout.addWidget(self.remove_btn)
+        self.left_layout.addStretch()
+        left_widget.setLayout(self.left_layout)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["Property", "Value"])
+        self.table.setStyleSheet(GLOBAL_STYLES["table"])
+
+        layout.addWidget(left_widget)
+        layout.addWidget(self.table, stretch=1)
+        self.setLayout(layout)
+
+        self.add_btn.clicked.connect(self.add_combo)
+        self.remove_btn.clicked.connect(self.remove_combo)
+
+    def add_combo(self):
+        combo = QComboBox()
+        combo.addItems(self.model.cpu_models)
+        combo.currentTextChanged.connect(lambda text: self.query_signal.emit(text))
+        self.combos.append(combo)
+        self.left_layout.insertWidget(self.left_layout.count() - 3, combo)
+
+    def remove_combo(self):
+        if len(self.combos) > 1:
+            combo = self.combos.pop()
+            combo.deleteLater()
+            self.table.clearContents()
+
+    def update_table(self, cpu_model):
+        specs = self.model.get_cpu_specs(cpu_model)
+        self.table.setRowCount(len(specs))
+        for i, (key, value) in enumerate(specs.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(str(value)))
+        self.table.resizeColumnsToContents()
+
+class ServerDataWidget(QWidget):
+    query_signal = Signal()
+    clear_signal = Signal()
+    modify_signal = Signal(str, int, str, str)
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QHBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        left_widget = QWidget()
+        left_layout = QVBoxLayout()
+        left_layout.setSpacing(5)
+        self.cpu_combo = QComboBox()
+        self.cpu_combo.addItems(self.model.cpu_models)
+        self.extra_combo = QComboBox()
+        self.extra_combo.addItems(["Option1", "Option2"])
+        self.query_btn = QPushButton("Query")
+        self.clear_btn = QPushButton("Clear")
+        for btn in [self.query_btn, self.clear_btn]:
+            btn.setStyleSheet(GLOBAL_STYLES["button_action"])
+        left_layout.addWidget(self.cpu_combo)
+        left_layout.addWidget(self.extra_combo)
+        left_layout.addWidget(self.query_btn)
+        left_layout.addWidget(self.clear_btn)
+        left_layout.addStretch()
+        left_widget.setLayout(left_layout)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Property", "Value", "Modify", "Link"])
+        self.table.setStyleSheet(GLOBAL_STYLES["table"])
+
+        layout.addWidget(left_widget)
+        layout.addWidget(self.table, stretch=1)
+        self.setLayout(layout)
+
+    def update_table(self):
+        cpu_model = self.cpu_combo.currentText()
+        data = self.model.get_server_data(cpu_model)
+        self.table.setRowCount(len(data))
+        modify_values = {}
+        for row in range(self.table.rowCount()):
+            combo = self.table.cellWidget(row, 2)
+            if combo:
+                modify_values[row] = combo.currentText()
+
+        for i, (key, value) in enumerate(data.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(value))
+            combo = QComboBox()
+            combo.addItems(["Low", "Medium", "High"])
+            combo.setCurrentText(modify_values.get(i, "Medium"))
+            combo.currentTextChanged.connect(lambda text, r=i, k=key: self.modify_signal.emit(cpu_model, r, k, text))
+            self.table.setCellWidget(i, 2, combo)
+            btn = QPushButton("Link")
+            btn.clicked.connect(self.open_link)
+            self.table.setCellWidget(i, 3, btn)
+        self.table.resizeColumnsToContents()
+
+    def open_link(self):
+        from PySide6.QtGui import QDesktopServices, QUrl
+        QDesktopServices.openUrl(QUrl("https://www.baidu.com"))
+        print("Opening Baidu homepage")
+
+    def clear_table(self):
+        self.table.setRowCount(0)
+
+class VirtualizationPerfWidget(QWidget):
+    query_signal = Signal()
+    clear_signal = Signal()
+
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QHBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        left_widget = QWidget()
+        left_layout = QVBoxLayout()
+        left_layout.setSpacing(5)
+        self.cpu_combo = QComboBox()
+        self.cpu_combo.addItems(self.model.cpu_models)
+        self.query_btn = QPushButton("Query")
+        self.clear_btn = QPushButton("Clear")
+        for btn in [self.query_btn, self.clear_btn]:
+            btn.setStyleSheet(GLOBAL_STYLES["button_action"])
+        left_layout.addWidget(self.cpu_combo)
+        left_layout.addWidget(self.query_btn)
+        left_layout.addWidget(self.clear_btn)
+        left_layout.addStretch()
+        left_widget.setLayout(left_layout)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["Property", "Value"])
+        self.table.setStyleSheet(GLOBAL_STYLES["table"])
+
+        layout.addWidget(left_widget)
+        layout.addWidget(self.table, stretch=1)
+        self.setLayout(layout)
+
+    def update_table(self):
+        cpu_model = self.cpu_combo.currentText()
+        data = self.model.get_virtualization_data(cpu_model)
+        self.table.setRowCount(len(data))
+        for i, (key, value) in enumerate(data.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(value))
+        self.table.resizeColumnsToContents()
+
+    def clear_table(self):
+        self.table.setRowCount(0)
+controller.py
+python
+from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import Slot
+from collections import OrderedDict
+import gc  # 垃圾回收模块，确保内存释放
+
+class PageManager:
+    def __init__(self, main_window, model, max_cache_size=5):
+        self.main_window = main_window
+        self.model = model
+        self.max_cache_size = max_cache_size
+        self.pages = {}  # 注册信息
+        self.cache = OrderedDict()  # LRU 缓存
+
+    def register_page(self, name, widget_class, button):
+        self.pages[name] = {"widget_class": widget_class, "button": button}
+        button.clicked.connect(lambda: self.show_page(name))
+
+    def show_page(self, name):
+        if name not in self.pages:
+            return
+
+        if name in self.cache:
+            self.cache.move_to_end(name)
+            self.main_window.content_stack.setCurrentIndex(self.cache[name]["index"])
+            print(f"Switched to cached page: {name}")
+            return
+
+        if len(self.cache) >= self.max_cache_size:
+            self.remove_least_used_page()
+
+        widget = self.pages[name]["widget_class"](self.model)
+        index = self.main_window.content_stack.addWidget(widget)
+        self.cache[name] = {"widget": widget, "index": index}
+        self.connect_widget_signals(widget)
+        self.main_window.content_stack.setCurrentIndex(index)
+        print(f"Created and switched to new page: {name}")
+
+    def remove_least_used_page(self):
+        if self.cache:
+            name, data = next(iter(self.cache.items()))
+            self.destroy_page(name)
+
+    def destroy_page(self, name):
+        if name in self.cache:
+            widget = self.cache[name]["widget"]
+            index = self.cache[name]["index"]
+            self.main_window.content_stack.removeWidget(widget)
+            widget.deleteLater()
+            del self.cache[name]
+            gc.collect()  # 强制垃圾回收，确保内存释放
+            print(f"Destroyed page: {name}")
+
+    def clear_all_pages(self):
+        while self.cache:
+            name = next(iter(self.cache))
+            self.destroy_page(name)
+
+    def connect_widget_signals(self, widget):
+        if hasattr(widget, "query_signal"):
+            widget.query_signal.connect(widget.update_table)
+        if hasattr(widget, "clear_signal"):
+            widget.clear_signal.connect(widget.clear_table)
+        if hasattr(widget, "modify_signal"):
+            widget.modify_signal.connect(lambda cpu, row, key, text: self.modify_server_data(widget, cpu, row, key, text))
+
+    def modify_server_data(self, widget, cpu_model, row, key, text):
+        self.model.update_server_data(cpu_model, key, f"{text} ({self.model.get_server_data(cpu_model)[key].split(' (')[0]})")
+        widget.update_table()
+        print(f"Row {row} modified: {key} = {self.model.get_server_data(cpu_model)[key]}")
+
+class SystemController:
+    def __init__(self, model, login_widget):
+        self.model = model
+        self.login_widget = login_widget
+        self.main_window = None
+        self.page_manager = None
+        self.setup_connections()
+
+    def setup_connections(self):
+        self.login_widget.login_signal.connect(self.handle_login)
+        if self.main_window:
+            self.main_window.toggle_btn.clicked.connect(self.main_window.toggle_sidebar)
+            self.main_window.logout_btn.clicked.connect(self.handle_logout)
+            self.main_window.clear_cache_btn.clicked.connect(self.handle_clear_cache)  # 新增清理缓存连接
+            self.page_manager = PageManager(self.main_window, self.model, max_cache_size=5)
+            self.page_manager.register_page("cpu_specs", CPUSpecsWidget, self.main_window.cpu_btn)
+            self.page_manager.register_page("server_data", ServerDataWidget, self.main_window.server_btn)
+            self.page_manager.register_page("virtualization_perf", VirtualizationPerfWidget, self.main_window.virtual_btn)
+
+    @Slot(str, str)
+    def handle_login(self, username, password):
+        if self.model.validate_login(username, password):
+            self.main_window = MainWindow(username)
+            self.setup_connections()
+            self.main_window.show()
+            self.login_widget.close()
+        else:
+            QMessageBox.warning(self.login_widget, "Login Failed", "Invalid username or password")
+
+    @Slot()
+    def handle_logout(self):
+        if self.page_manager:
+            self.page_manager.clear_all_pages()
+        self.main_window.close()
+        self.login_widget = LoginWidget()
+        self.setup_connections()
+        self.login_widget.show()
+
+    @Slot()
+    def handle_clear_cache(self):
+        if self.page_manager:
+            self.page_manager.clear_all_pages()
+            QMessageBox.information(self.main_window, "Cache Cleared", "All cached pages have been destroyed.")
+
+from views import MainWindow, CPUSpecsWidget, ServerDataWidget, VirtualizationPerfWidget
+main.py
+python
+from PySide6.QtWidgets import QApplication
+from model import SystemModel
+from views import LoginWidget, GLOBAL_STYLES
+from controller import SystemController
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setStyleSheet(f"QWidget {{ font-size: 14px; }} QPushButton {{ {GLOBAL_STYLES['button_primary']} }}")
+    model = SystemModel()
+    login_widget = LoginWidget()
+    controller = SystemController(model, login_widget)
+    login_widget.show()
+    sys.exit(app.exec())
+新增的页面销毁机制特点
+懒加载：
+页面仅在首次点击时创建，未访问的页面不占用内存。
+LRU 缓存：
+max_cache_size=5 限制缓存页面数，超出时移除最旧页面。
+OrderedDict 确保 LRU 策略按访问顺序执行。
+手动销毁：
+新增 clear_cache_btn 和 handle_clear_cache，允许用户手动清空所有缓存页面。
+destroy_page 方法支持销毁特定页面，可扩展为右键菜单或页面内按钮。
+内存释放：
+使用 deleteLater() 异步销毁页面，避免阻塞 UI。
+调用 gc.collect() 强制清理未引用的对象，确保内存释放。
+测试步骤
+保存代码到对应文件（model.py、views.py、controller.py、main.py）。
+确保 cpu_icon.png 存在（或注释掉相关代码）。
+运行 main.py，输入 admin 和 123456 登录。
+检查：
+切换页面，观察命令行输出，确认页面创建和缓存行为。
+打开多个页面后（需注册更多页面测试），确认超过 5 个时最旧页面被销毁。
+点击“Clear Cache”按钮，验证所有页面是否被销毁并收到提示。
+退出系统，确认所有页面被清空。
+示例输出
+Created and switched to new page: cpu_specs
+Created and switched to new page: server_data
+Switched to cached page: cpu_specs
+Created and switched to new page: virtualization_perf
+Row 0 modified: CPU Usage = High (45%)
+Destroyed page: cpu_specs  # 假设添加更多页面触发 LRU
+Created and switched to new page: another_page
+Destroyed page: server_data  # 点击 Clear Cache
+Destroyed page: virtualization_perf
+Destroyed page: another_page
+注意事项
+扩展测试：当前仅注册 3 个页面，需添加更多页面（如 10 个）测试 LRU 和手动销毁。
+示例添加页面：
+python
+self.page_manager.register_page("page_4", SomeWidget, QPushButton("Page 4"))
+内存监控：可使用 psutil 或 tracemalloc 检查内存使用，验证销毁效果。
+状态保留：若需保留销毁后状态，可在 model 中保存用户数据，并在 update_table 中恢复。
+进一步优化建议
+页面选择销毁：为每个导航按钮添加右键菜单，单独销毁特定页面。
+内存阈值触发：检测系统内存使用，自动销毁页面。
+销毁动画：在页面销毁前添加淡出效果，提升用户体验。
+如果需要实现这些建议或调整 max_cache_size，请告诉我！
+
+
+
 import sys
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QComboBox, QPushButton, QTableWidget, QTableWidgetItem,
