@@ -1,3 +1,723 @@
+import sys
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                               QComboBox, QPushButton, QTableWidget, QTableWidgetItem,
+                               QLabel, QLineEdit, QFrame, QMessageBox, QSpacerItem, QSizePolicy)
+from PySide6.QtCore import Qt, Signal, Slot, QUrl, QSize
+from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QDesktopServices
+
+# 模拟数据
+CPU_MODELS = ["Intel i9-13900K", "AMD Ryzen 9 7950X", "Intel i7-13700K", "AMD Ryzen 7 7700X", "Intel i5-13600K",
+              "AMD Ryzen 5 7600X"]
+CPU_SPECS = {
+    "Intel i9-13900K": {"Cores": 24, "Threads": 32, "Base Clock": "3.0 GHz", "Boost Clock": "5.8 GHz", "Cache": "36 MB",
+                        "TDP": "125 W"},
+    "AMD Ryzen 9 7950X": {"Cores": 16, "Threads": 32, "Base Clock": "4.5 GHz", "Boost Clock": "5.7 GHz",
+                          "Cache": "80 MB", "TDP": "170 W"},
+    "Intel i7-13700K": {"Cores": 16, "Threads": 24, "Base Clock": "3.4 GHz", "Boost Clock": "5.4 GHz", "Cache": "30 MB",
+                        "TDP": "125 W"},
+    "AMD Ryzen 7 7700X": {"Cores": 8, "Threads": 16, "Base Clock": "4.5 GHz", "Boost Clock": "5.4 GHz",
+                          "Cache": "40 MB", "TDP": "105 W"},
+    "Intel i5-13600K": {"Cores": 14, "Threads": 20, "Base Clock": "3.5 GHz", "Boost Clock": "5.1 GHz", "Cache": "24 MB",
+                        "TDP": "125 W"},
+    "AMD Ryzen 5 7600X": {"Cores": 6, "Threads": 12, "Base Clock": "4.7 GHz", "Boost Clock": "5.3 GHz",
+                          "Cache": "38 MB", "TDP": "105 W"},
+}
+SERVER_DATA = {
+    "Intel i9-13900K": {"CPU Usage": "45%", "Memory": "16 GB", "Latency": "5 ms", "Disk I/O": "120 MB/s",
+                        "Network": "1 Gbps"},
+    "AMD Ryzen 9 7950X": {"CPU Usage": "60%", "Memory": "32 GB", "Latency": "4 ms", "Disk I/O": "200 MB/s",
+                          "Network": "2 Gbps"},
+    "Intel i7-13700K": {"CPU Usage": "35%", "Memory": "12 GB", "Latency": "6 ms", "Disk I/O": "100 MB/s",
+                        "Network": "800 Mbps"},
+    "AMD Ryzen 7 7700X": {"CPU Usage": "50%", "Memory": "24 GB", "Latency": "3 ms", "Disk I/O": "150 MB/s",
+                          "Network": "1.5 Gbps"},
+    "Intel i5-13600K": {"CPU Usage": "40%", "Memory": "8 GB", "Latency": "7 ms", "Disk I/O": "90 MB/s",
+                        "Network": "700 Mbps"},
+    "AMD Ryzen 5 7600X": {"CPU Usage": "55%", "Memory": "16 GB", "Latency": "5 ms", "Disk I/O": "130 MB/s",
+                          "Network": "1 Gbps"},
+}
+
+
+# 模型层 (Model)
+class SystemModel:
+    def __init__(self):
+        self.users = {"admin": "123456"}
+        self.cpu_models = CPU_MODELS
+        self.cpu_specs = CPU_SPECS
+        self.server_data = SERVER_DATA
+
+    def validate_login(self, username, password):
+        return username in self.users and self.users[username] == password
+
+    def get_cpu_specs(self, cpu_model):
+        return self.cpu_specs.get(cpu_model, {})
+
+    def get_server_data(self, cpu_model):
+        return self.server_data.get(cpu_model, {})
+
+    def update_server_data(self, cpu_model, key, value):
+        if cpu_model in self.server_data:
+            self.server_data[cpu_model][key] = value
+
+
+# 视图层 (View)
+class LoginWidget(QWidget):
+    login_signal = Signal(str, str)
+
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(20, 20, 20, 20)
+        self.username_input = QLineEdit(self)
+        self.username_input.setPlaceholderText("Username")
+        self.password_input = QLineEdit(self)
+        self.password_input.setPlaceholderText("Password")
+        self.password_input.setEchoMode(QLineEdit.Password)
+        self.login_btn = QPushButton("Login")
+        self.login_btn.setStyleSheet("padding: 10px; background-color: #4CAF50; color: white;")
+        layout.addWidget(self.username_input)
+        layout.addWidget(self.password_input)
+        layout.addWidget(self.login_btn)
+        layout.addStretch()
+        self.setLayout(layout)
+        self.login_btn.clicked.connect(self.emit_login)
+
+    @Slot()
+    def emit_login(self):
+        self.login_signal.emit(self.username_input.text(), self.password_input.text())
+
+
+class MainWindow(QMainWindow):
+    def __init__(self, username):
+        super().__init__()
+        self.setWindowTitle("Information Query System")
+        self.resize(1200, 800)
+        self.username = username
+        self.init_ui()
+
+    def init_ui(self):
+        title_bar = QWidget()
+        title_layout = QHBoxLayout()
+        title_bar.setFixedHeight(60)
+        title_bar.setStyleSheet("background-color: #2E2E2E; color: white; padding: 5px;")
+        logo_label = QLabel("Logo")
+        user_label = QLabel(f"User: {self.username}")
+        self.logout_btn = QPushButton("Logout")
+        self.logout_btn.setStyleSheet("background-color: #F44336; color: white; padding: 5px;")
+        title_layout.addWidget(logo_label)
+        title_layout.addStretch()
+        title_layout.addWidget(user_label)
+        title_layout.addWidget(self.logout_btn)
+        title_bar.setLayout(title_layout)
+
+        main_widget = QWidget()
+        main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+
+        self.sidebar = QFrame()
+        self.sidebar.setFixedWidth(200)
+        self.sidebar.setStyleSheet("background-color: #f0f0f0; border-right: 1px solid #ccc;")
+        sidebar_layout = QVBoxLayout()
+        sidebar_layout.setAlignment(Qt.AlignCenter)
+
+        self.cpu_btn = QPushButton("CPU Specs")
+        self.cpu_btn.setIcon(QIcon("cpu_icon.png"))  # 请替换为实际图标路径
+        self.cpu_btn.setIconSize(QSize(24, 24))
+        self.server_btn = QPushButton("Server Data")
+        for btn in [self.cpu_btn, self.server_btn]:
+            btn.setStyleSheet("padding: 10px; background-color: #2196F3; color: white; margin: 5px; text-align: left;")
+
+        self.toggle_btn = QPushButton("<<")
+        self.toggle_btn.setStyleSheet("padding: 5px; background-color: #2196F3; color: white; border: none;")
+        self.toggle_btn.setFixedWidth(20)
+        toggle_layout = QHBoxLayout()
+        toggle_layout.addStretch()
+        toggle_layout.addWidget(self.toggle_btn)
+
+        sidebar_layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        sidebar_layout.addWidget(self.cpu_btn)
+        sidebar_layout.addWidget(self.server_btn)
+        sidebar_layout.addSpacerItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Fixed))  # 留出缺口
+        sidebar_layout.addLayout(toggle_layout)
+        sidebar_layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        self.sidebar.setLayout(sidebar_layout)
+
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout()
+        self.content_layout.setContentsMargins(10, 10, 10, 10)
+        self.content_widget.setLayout(self.content_layout)
+
+        main_layout.addWidget(self.sidebar)
+        main_layout.addWidget(self.content_widget)
+        main_widget.setLayout(main_layout)
+
+        central_layout = QVBoxLayout()
+        central_layout.addWidget(title_bar)
+        central_layout.addWidget(main_widget)
+        central_widget = QWidget()
+        central_widget.setLayout(central_layout)
+        self.setCentralWidget(central_widget)
+
+    def toggle_sidebar(self):
+        if self.sidebar.width() > 50:
+            self.sidebar.setFixedWidth(50)
+            self.toggle_btn.setText(">>")
+        else:
+            self.sidebar.setFixedWidth(200)
+            self.toggle_btn.setText("<<")
+
+
+class CPUSpecsWidget(QWidget):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QHBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        left_widget = QWidget()
+        self.left_layout = QVBoxLayout()
+        self.left_layout.setSpacing(5)
+        self.combos = []
+        for _ in range(6):
+            self.add_combo()
+        self.add_btn = QPushButton("+")
+        self.remove_btn = QPushButton("-")
+        for btn in [self.add_btn, self.remove_btn]:
+            btn.setStyleSheet("padding: 5px; background-color: #4CAF50; color: white;")
+        self.left_layout.addWidget(self.add_btn)
+        self.left_layout.addWidget(self.remove_btn)
+        self.left_layout.addStretch()
+        left_widget.setLayout(self.left_layout)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["Property", "Value"])
+        self.table.setStyleSheet("border: 1px solid #ccc; padding: 5px;")
+
+        layout.addWidget(left_widget)
+        layout.addWidget(self.table, stretch=1)
+        self.setLayout(layout)
+
+        self.add_btn.clicked.connect(self.add_combo)
+        self.remove_btn.clicked.connect(self.remove_combo)
+
+    def add_combo(self):
+        combo = QComboBox()
+        combo.addItems(self.model.cpu_models)
+        combo.currentTextChanged.connect(lambda text: self.update_table(text))
+        self.combos.append(combo)
+        self.left_layout.insertWidget(self.left_layout.count() - 3, combo)
+
+    def remove_combo(self):
+        if len(self.combos) > 1:
+            combo = self.combos.pop()
+            combo.deleteLater()
+            self.table.clearContents()
+
+    def update_table(self, cpu_model):
+        specs = self.model.get_cpu_specs(cpu_model)
+        self.table.setRowCount(len(specs))
+        for i, (key, value) in enumerate(specs.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(str(value)))
+        self.table.resizeColumnsToContents()
+
+
+class ServerDataWidget(QWidget):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QHBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        left_widget = QWidget()
+        left_layout = QVBoxLayout()
+        left_layout.setSpacing(5)
+        self.cpu_combo = QComboBox()
+        self.cpu_combo.addItems(self.model.cpu_models)
+        self.extra_combo = QComboBox()
+        self.extra_combo.addItems(["Option1", "Option2"])
+        self.query_btn = QPushButton("Query")
+        self.clear_btn = QPushButton("Clear")
+        for btn in [self.query_btn, self.clear_btn]:
+            btn.setStyleSheet("padding: 5px; background-color: #2196F3; color: white;")
+        left_layout.addWidget(self.cpu_combo)
+        left_layout.addWidget(self.extra_combo)
+        left_layout.addWidget(self.query_btn)
+        left_layout.addWidget(self.clear_btn)
+        left_layout.addStretch()
+        left_widget.setLayout(left_layout)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Property", "Value", "Modify", "Link"])
+        self.table.setStyleSheet("border: 1px solid #ccc; padding: 5px;")
+
+        layout.addWidget(left_widget)
+        layout.addWidget(self.table, stretch=1)
+        self.setLayout(layout)
+
+        self.query_btn.clicked.connect(self.update_table)
+        self.clear_btn.clicked.connect(self.clear_table)
+
+    def update_table(self):
+        cpu_model = self.cpu_combo.currentText()
+        data = self.model.get_server_data(cpu_model)
+        self.table.setRowCount(len(data))
+        modify_values = {}
+        # 保存现有下拉框的选择状态
+        for row in range(self.table.rowCount()):
+            combo = self.table.cellWidget(row, 2)
+            if combo:
+                modify_values[row] = combo.currentText()
+
+        for i, (key, value) in enumerate(data.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(value))
+            combo = QComboBox()
+            combo.addItems(["Low", "Medium", "High"])
+            combo.setCurrentText(modify_values.get(i, "Medium"))  # 恢复之前的选择
+            combo.currentTextChanged.connect(lambda text, r=i, k=key: self.modify_data(cpu_model, r, k, text))
+            self.table.setCellWidget(i, 2, combo)
+            btn = QPushButton("Link")
+            btn.clicked.connect(self.open_link)
+            self.table.setCellWidget(i, 3, btn)
+        self.table.resizeColumnsToContents()
+
+    def modify_data(self, cpu_model, row, key, text):
+        # 更新模型数据
+        self.model.update_server_data(cpu_model, key,
+                                      f"{text} ({self.model.get_server_data(cpu_model)[key].split(' (')[0]})")
+        # 纵向重新渲染整个表格
+        self.update_table()
+        print(f"Row {row} modified: {key} = {self.model.get_server_data(cpu_model)[key]}")
+
+    def open_link(self):
+        QDesktopServices.openUrl(QUrl("https://www.baidu.com"))
+        print("Opening Baidu homepage")
+
+    def clear_table(self):
+        self.table.setRowCount(0)
+
+
+# 控制层 (Controller)
+class SystemController:
+    def __init__(self, model, login_widget):
+        self.model = model
+        self.login_widget = login_widget
+        self.main_window = None
+        self.setup_connections()
+
+    def setup_connections(self):
+        self.login_widget.login_signal.connect(self.handle_login)
+        if self.main_window:
+            self.main_window.cpu_btn.clicked.connect(self.show_cpu_specs)
+            self.main_window.server_btn.clicked.connect(self.show_server_data)
+            self.main_window.toggle_btn.clicked.connect(self.main_window.toggle_sidebar)
+            self.main_window.logout_btn.clicked.connect(self.handle_logout)
+
+    @Slot(str, str)
+    def handle_login(self, username, password):
+        if self.model.validate_login(username, password):
+            self.main_window = MainWindow(username)
+            self.setup_connections()
+            self.main_window.show()
+            self.login_widget.close()
+        else:
+            QMessageBox.warning(self.login_widget, "Login Failed", "Invalid username or password")
+
+    @Slot()
+    def handle_logout(self):
+        self.main_window.close()
+        self.login_widget = LoginWidget()
+        self.setup_connections()
+        self.login_widget.show()
+
+    @Slot()
+    def show_cpu_specs(self):
+        for i in reversed(range(self.main_window.content_layout.count())):
+            self.main_window.content_layout.itemAt(i).widget().setParent(None)
+        cpu_widget = CPUSpecsWidget(self.model)
+        self.main_window.content_layout.addWidget(cpu_widget)
+
+    @Slot()
+    def show_server_data(self):
+        for i in reversed(range(self.main_window.content_layout.count())):
+            self.main_window.content_layout.itemAt(i).widget().setParent(None)
+        server_widget = ServerDataWidget(self.model)
+        self.main_window.content_layout.addWidget(server_widget)
+
+
+# 主程序
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setStyleSheet("QWidget { font-size: 14px; }")
+    model = SystemModel()
+    login_widget = LoginWidget()
+    controller = SystemController(model, login_widget)
+    login_widget.show()
+    sys.exit(app.exec())
+
+
+
+import sys
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+                               QComboBox, QPushButton, QTableWidget, QTableWidgetItem, 
+                               QLabel, QLineEdit, QFrame, QMessageBox, QSpacerItem, QSizePolicy)
+from PySide6.QtCore import Qt, Signal, Slot, QUrl
+from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtWebEngineWidgets import QWebEngineView  # 可选，用于内嵌网页
+from PySide6.QtGui import QDesktopServices  # 用于打开外部链接
+
+# 模拟数据（丰富测试数据）
+CPU_MODELS = ["Intel i9-13900K", "AMD Ryzen 9 7950X", "Intel i7-13700K", "AMD Ryzen 7 7700X", "Intel i5-13600K", "AMD Ryzen 5 7600X"]
+CPU_SPECS = {
+    "Intel i9-13900K": {"Cores": 24, "Threads": 32, "Base Clock": "3.0 GHz", "Boost Clock": "5.8 GHz", "Cache": "36 MB", "TDP": "125 W"},
+    "AMD Ryzen 9 7950X": {"Cores": 16, "Threads": 32, "Base Clock": "4.5 GHz", "Boost Clock": "5.7 GHz", "Cache": "80 MB", "TDP": "170 W"},
+    "Intel i7-13700K": {"Cores": 16, "Threads": 24, "Base Clock": "3.4 GHz", "Boost Clock": "5.4 GHz", "Cache": "30 MB", "TDP": "125 W"},
+    "AMD Ryzen 7 7700X": {"Cores": 8, "Threads": 16, "Base Clock": "4.5 GHz", "Boost Clock": "5.4 GHz", "Cache": "40 MB", "TDP": "105 W"},
+    "Intel i5-13600K": {"Cores": 14, "Threads": 20, "Base Clock": "3.5 GHz", "Boost Clock": "5.1 GHz", "Cache": "24 MB", "TDP": "125 W"},
+    "AMD Ryzen 5 7600X": {"Cores": 6, "Threads": 12, "Base Clock": "4.7 GHz", "Boost Clock": "5.3 GHz", "Cache": "38 MB", "TDP": "105 W"},
+}
+SERVER_DATA = {
+    "Intel i9-13900K": {"CPU Usage": "45%", "Memory": "16 GB", "Latency": "5 ms", "Disk I/O": "120 MB/s", "Network": "1 Gbps"},
+    "AMD Ryzen 9 7950X": {"CPU Usage": "60%", "Memory": "32 GB", "Latency": "4 ms", "Disk I/O": "200 MB/s", "Network": "2 Gbps"},
+    "Intel i7-13700K": {"CPU Usage": "35%", "Memory": "12 GB", "Latency": "6 ms", "Disk I/O": "100 MB/s", "Network": "800 Mbps"},
+    "AMD Ryzen 7 7700X": {"CPU Usage": "50%", "Memory": "24 GB", "Latency": "3 ms", "Disk I/O": "150 MB/s", "Network": "1.5 Gbps"},
+    "Intel i5-13600K": {"CPU Usage": "40%", "Memory": "8 GB", "Latency": "7 ms", "Disk I/O": "90 MB/s", "Network": "700 Mbps"},
+    "AMD Ryzen 5 7600X": {"CPU Usage": "55%", "Memory": "16 GB", "Latency": "5 ms", "Disk I/O": "130 MB/s", "Network": "1 Gbps"},
+}
+
+# 模型层 (Model)
+class SystemModel:
+    def __init__(self):
+        self.users = {"admin": "123456"}
+        self.cpu_models = CPU_MODELS
+        self.cpu_specs = CPU_SPECS
+        self.server_data = SERVER_DATA
+
+    def validate_login(self, username, password):
+        return username in self.users and self.users[username] == password
+
+    def get_cpu_specs(self, cpu_model):
+        return self.cpu_specs.get(cpu_model, {})
+
+    def get_server_data(self, cpu_model):
+        return self.server_data.get(cpu_model, {})
+
+    def update_server_data(self, cpu_model, key, value):
+        if cpu_model in self.server_data:
+            self.server_data[cpu_model][key] = value
+
+# 视图层 (View)
+class LoginWidget(QWidget):
+    login_signal = Signal(str, str)
+
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(20, 20, 20, 20)
+        self.username_input = QLineEdit(self)
+        self.username_input.setPlaceholderText("Username")
+        self.password_input = QLineEdit(self)
+        self.password_input.setPlaceholderText("Password")
+        self.password_input.setEchoMode(QLineEdit.Password)
+        self.login_btn = QPushButton("Login")
+        self.login_btn.setStyleSheet("padding: 10px; background-color: #4CAF50; color: white;")
+        layout.addWidget(self.username_input)
+        layout.addWidget(self.password_input)
+        layout.addWidget(self.login_btn)
+        layout.addStretch()
+        self.setLayout(layout)
+        self.login_btn.clicked.connect(self.emit_login)
+
+    @Slot()
+    def emit_login(self):
+        self.login_signal.emit(self.username_input.text(), self.password_input.text())
+
+class MainWindow(QMainWindow):
+    def __init__(self, username):
+        super().__init__()
+        self.setWindowTitle("Information Query System")
+        self.resize(1200, 800)
+        self.username = username
+        self.init_ui()
+
+    def init_ui(self):
+        title_bar = QWidget()
+        title_layout = QHBoxLayout()
+        title_bar.setFixedHeight(60)
+        title_bar.setStyleSheet("background-color: #2E2E2E; color: white; padding: 5px;")
+        logo_label = QLabel("Logo")
+        user_label = QLabel(f"User: {self.username}")
+        self.logout_btn = QPushButton("Logout")
+        self.logout_btn.setStyleSheet("background-color: #F44336; color: white; padding: 5px;")
+        title_layout.addWidget(logo_label)
+        title_layout.addStretch()
+        title_layout.addWidget(user_label)
+        title_layout.addWidget(self.logout_btn)
+        title_bar.setLayout(title_layout)
+
+        main_widget = QWidget()
+        main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+
+        self.sidebar = QFrame()
+        self.sidebar.setFixedWidth(200)
+        self.sidebar.setStyleSheet("background-color: #f0f0f0; border-right: 1px solid #ccc;")
+        sidebar_layout = QVBoxLayout()
+        sidebar_layout.setAlignment(Qt.AlignCenter)
+
+        self.cpu_btn = QPushButton("CPU Specs")
+        self.cpu_btn.setIcon(QIcon("cpu_icon.png"))  # 请替换为实际图标路径
+        self.cpu_btn.setIconSize(Qt.QSize(24, 24))
+        self.server_btn = QPushButton("Server Data")
+        for btn in [self.cpu_btn, self.server_btn]:
+            btn.setStyleSheet("padding: 10px; background-color: #2196F3; color: white; margin: 5px; text-align: left;")
+        
+        self.toggle_btn = QPushButton("<<")
+        self.toggle_btn.setStyleSheet("padding: 5px; background-color: #2196F3; color: white; border: none;")
+        self.toggle_btn.setFixedWidth(20)
+        toggle_layout = QHBoxLayout()
+        toggle_layout.addStretch()
+        toggle_layout.addWidget(self.toggle_btn)
+
+        sidebar_layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        sidebar_layout.addWidget(self.cpu_btn)
+        sidebar_layout.addWidget(self.server_btn)
+        sidebar_layout.addLayout(toggle_layout)
+        sidebar_layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
+        self.sidebar.setLayout(sidebar_layout)
+
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout()
+        self.content_layout.setContentsMargins(10, 10, 10, 10)
+        self.content_widget.setLayout(self.content_layout)
+
+        main_layout.addWidget(self.sidebar)
+        main_layout.addWidget(self.content_widget)
+        main_widget.setLayout(main_layout)
+
+        central_layout = QVBoxLayout()
+        central_layout.addWidget(title_bar)
+        central_layout.addWidget(main_widget)
+        central_widget = QWidget()
+        central_widget.setLayout(central_layout)
+        self.setCentralWidget(central_widget)
+
+    def toggle_sidebar(self):
+        if self.sidebar.width() > 50:
+            self.sidebar.setFixedWidth(50)
+            self.toggle_btn.setText(">>")
+        else:
+            self.sidebar.setFixedWidth(200)
+            self.toggle_btn.setText("<<")
+
+class CPUSpecsWidget(QWidget):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QHBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        left_widget = QWidget()
+        self.left_layout = QVBoxLayout()
+        self.left_layout.setSpacing(5)
+        self.combos = []
+        for _ in range(6):
+            self.add_combo()
+        self.add_btn = QPushButton("+")
+        self.remove_btn = QPushButton("-")
+        for btn in [self.add_btn, self.remove_btn]:
+            btn.setStyleSheet("padding: 5px; background-color: #4CAF50; color: white;")
+        self.left_layout.addWidget(self.add_btn)
+        self.left_layout.addWidget(self.remove_btn)
+        self.left_layout.addStretch()
+        left_widget.setLayout(self.left_layout)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["Property", "Value"])
+        self.table.setStyleSheet("border: 1px solid #ccc; padding: 5px;")
+
+        layout.addWidget(left_widget)
+        layout.addWidget(self.table, stretch=1)
+        self.setLayout(layout)
+
+        self.add_btn.clicked.connect(self.add_combo)
+        self.remove_btn.clicked.connect(self.remove_combo)
+
+    def add_combo(self):
+        combo = QComboBox()
+        combo.addItems(self.model.cpu_models)
+        combo.currentTextChanged.connect(lambda text: self.update_table(text))
+        self.combos.append(combo)
+        self.left_layout.insertWidget(self.left_layout.count() - 3, combo)
+
+    def remove_combo(self):
+        if len(self.combos) > 1:
+            combo = self.combos.pop()
+            combo.deleteLater()
+            self.table.clearContents()
+
+    def update_table(self, cpu_model):
+        specs = self.model.get_cpu_specs(cpu_model)
+        self.table.setRowCount(len(specs))
+        for i, (key, value) in enumerate(specs.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(str(value)))
+        self.table.resizeColumnsToContents()
+
+class ServerDataWidget(QWidget):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QHBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
+
+        left_widget = QWidget()
+        left_layout = QVBoxLayout()
+        left_layout.setSpacing(5)
+        self.cpu_combo = QComboBox()
+        self.cpu_combo.addItems(self.model.cpu_models)
+        self.extra_combo = QComboBox()
+        self.extra_combo.addItems(["Option1", "Option2"])
+        self.query_btn = QPushButton("Query")
+        self.clear_btn = QPushButton("Clear")
+        for btn in [self.query_btn, self.clear_btn]:
+            btn.setStyleSheet("padding: 5px; background-color: #2196F3; color: white;")
+        left_layout.addWidget(self.cpu_combo)
+        left_layout.addWidget(self.extra_combo)
+        left_layout.addWidget(self.query_btn)
+        left_layout.addWidget(self.clear_btn)
+        left_layout.addStretch()
+        left_widget.setLayout(left_layout)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Property", "Value", "Modify", "Link"])
+        self.table.setStyleSheet("border: 1px solid #ccc; padding: 5px;")
+
+        layout.addWidget(left_widget)
+        layout.addWidget(self.table, stretch=1)
+        self.setLayout(layout)
+
+        self.query_btn.clicked.connect(self.update_table)
+        self.clear_btn.clicked.connect(self.clear_table)
+
+    def update_table(self):
+        cpu_model = self.cpu_combo.currentText()
+        data = self.model.get_server_data(cpu_model)
+        self.table.setRowCount(len(data))
+        for i, (key, value) in enumerate(data.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(value))
+            combo = QComboBox()
+            combo.addItems(["Low", "Medium", "High"])  # 修改选项更贴近实际场景
+            combo.setCurrentText("Medium")  # 默认值
+            combo.currentTextChanged.connect(lambda text, r=i, k=key: self.modify_data(cpu_model, r, k, text))
+            self.table.setCellWidget(i, 2, combo)
+            btn = QPushButton("Link")
+            btn.clicked.connect(self.open_link)
+            self.table.setCellWidget(i, 3, btn)
+        self.table.resizeColumnsToContents()
+
+    def modify_data(self, cpu_model, row, key, text):
+        # 更新模型数据
+        self.model.update_server_data(cpu_model, key, f"{text} ({self.model.get_server_data(cpu_model)[key]})")
+        # 重新渲染当前列（Value 列）
+        updated_value = self.model.get_server_data(cpu_model)[key]
+        self.table.setItem(row, 1, QTableWidgetItem(updated_value))
+        print(f"Row {row} modified: {key} = {updated_value}")
+
+    def open_link(self):
+        # 跳转到百度官网
+        QDesktopServices.openUrl(QUrl("https://www.baidu.com"))
+        print("Opening Baidu homepage")
+
+    def clear_table(self):
+        self.table.setRowCount(0)
+
+# 控制层 (Controller)
+class SystemController:
+    def __init__(self, model, login_widget):
+        self.model = model
+        self.login_widget = login_widget
+        self.main_window = None
+        self.setup_connections()
+
+    def setup_connections(self):
+        self.login_widget.login_signal.connect(self.handle_login)
+        if self.main_window:
+            self.main_window.cpu_btn.clicked.connect(self.show_cpu_specs)
+            self.main_window.server_btn.clicked.connect(self.show_server_data)
+            self.main_window.toggle_btn.clicked.connect(self.main_window.toggle_sidebar)
+            self.main_window.logout_btn.clicked.connect(self.handle_logout)
+
+    @Slot(str, str)
+    def handle_login(self, username, password):
+        if self.model.validate_login(username, password):
+            self.main_window = MainWindow(username)
+            self.setup_connections()
+            self.main_window.show()
+            self.login_widget.close()
+        else:
+            QMessageBox.warning(self.login_widget, "Login Failed", "Invalid username or password")
+
+    @Slot()
+    def handle_logout(self):
+        self.main_window.close()
+        self.login_widget = LoginWidget()
+        self.setup_connections()
+        self.login_widget.show()
+
+    @Slot()
+    def show_cpu_specs(self):
+        for i in reversed(range(self.main_window.content_layout.count())):
+            self.main_window.content_layout.itemAt(i).widget().setParent(None)
+        cpu_widget = CPUSpecsWidget(self.model)
+        self.main_window.content_layout.addWidget(cpu_widget)
+
+    @Slot()
+    def show_server_data(self):
+        for i in reversed(range(self.main_window.content_layout.count())):
+            self.main_window.content_layout.itemAt(i).widget().setParent(None)
+        server_widget = ServerDataWidget(self.model)
+        self.main_window.content_layout.addWidget(server_widget)
+
+# 主程序
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setStyleSheet("QWidget { font-size: 14px; }")
+    model = SystemModel()
+    login_widget = LoginWidget()
+    controller = SystemController(model, login_widget)
+    login_widget.show()
+    sys.exit(app.exec())
+
+
+
 
 好的，我现在需要整理用户之前讨论的所有功能代码，并确保它们能够完整运行。用户希望有一个完整的项目结构，包括用户登录、服务器和虚拟机管理、API调用以及依赖注入等。我需要仔细回顾之前的对话，整合所有代码，并确保各模块之间的正确引用。
 
