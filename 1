@@ -1,3 +1,87 @@
+from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import Slot
+from views import MainWindow, CPUSpecsWidget, ServerDataWidget, VirtualizationPerfWidget
+
+class SystemController:
+    def __init__(self, model, login_widget, main_window_class=MainWindow, use_dynamic_rendering=False):
+        self.model = model
+        self.login_widget = login_widget
+        self.main_window_class = main_window_class
+        self.use_dynamic_rendering = use_dynamic_rendering  # 是否动态渲染
+        self.main_window = None
+        self.current_page = None
+        
+        self.login_widget.login_signal.connect(self._on_login)
+
+    def _init_main_window(self, username):
+        self.main_window = self.main_window_class(username)
+        self.main_window.toggle_btn.clicked.connect(self.main_window.toggle_sidebar)
+        self.main_window.logout_btn.clicked.connect(self._on_logout)
+        self.main_window.clear_cache_btn.clicked.connect(self._clear_current_page)
+        
+        # 注册页面
+        self._register_page("cpu_specs", CPUSpecsWidget, self.main_window.cpu_btn)
+        self._register_page("server_data", ServerDataWidget, self.main_window.server_btn)
+        self._register_page("virtualization_perf", VirtualizationPerfWidget, self.main_window.virtual_btn)
+
+    def _register_page(self, name, widget_class, button):
+        button.clicked.connect(lambda: self._switch_page(name, widget_class))
+
+    @Slot(str, str)
+    def _on_login(self, username, password):
+        if self.model.validate_login(username, password):
+            self._init_main_window(username)
+            self.main_window.show()
+            self.login_widget.hide()
+        else:
+            QMessageBox.warning(self.login_widget, "Login Failed", "Invalid username or password")
+
+    @Slot()
+    def _on_logout(self):
+        self._clear_current_page()
+        self.main_window.hide()
+        self.login_widget.show()
+
+    @Slot()
+    def _clear_current_page(self):
+        if self.current_page:
+            self.main_window.content_stack.removeWidget(self.current_page)
+            self.current_page.deleteLater()
+            self.current_page = None
+            print("Cleared current page")
+
+    def _switch_page(self, name, widget_class):
+        if self.use_dynamic_rendering or self.current_page is None:
+            self._clear_current_page()
+            self.current_page = widget_class(self.model)
+            self.main_window.content_stack.addWidget(self.current_page)
+            self._connect_page_signals(self.current_page)
+            print(f"Rendered new page: {name}")
+        else:
+            # 如果不动态渲染，保持当前页面（可选扩展为缓存）
+            if self.current_page.__class__.__name__ != widget_class.__name__:
+                self._clear_current_page()
+                self.current_page = widget_class(self.model)
+                self.main_window.content_stack.addWidget(self.current_page)
+                self._connect_page_signals(self.current_page)
+                print(f"Switched to new page: {name}")
+            else:
+                print(f"Already on page: {name}")
+
+    def _connect_page_signals(self, widget):
+        widget.query_signal.connect(widget.update_table)
+        widget.clear_signal.connect(widget.clear_table)
+        if hasattr(widget, "modify_signal"):
+            widget.modify_signal.connect(self._modify_server_data)
+
+    @Slot(str, int, str, str)
+    def _modify_server_data(self, cpu_model, row, key, text):
+        self.model.update_server_data(cpu_model, key, f"{text} ({self.model.get_server_data(cpu_model)[key].split(' (')[0]})")
+        if self.current_page:
+            self.current_page.update_table()
+        print(f"Row {row} modified: {key} = {self.model.get_server_data(cpu_model)[key]}")
+
+
 
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QComboBox, 
                                QPushButton, QTableWidget, QTableWidgetItem, QLabel, 
