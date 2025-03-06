@@ -1,3 +1,482 @@
+为了实现动态缩放优化，我们需要根据屏幕分辨率动态调整组件的位置和大小，使其在不同分辨率下保持比例一致，同时避免溢出或过小。当前代码基于固定坐标（如主窗口 1634x1054，下拉框 138,164,240,32），在小屏幕（如 1366x768）上可能溢出，大屏幕（如 2560x1440）上可能显得过小。以下是动态缩放优化的方案：
+优化目标
+动态缩放：
+以设计分辨率（1634x1054）为基准，计算缩放比例。
+根据屏幕实际大小调整组件的 x, y, width, height。
+保持比例：
+确保组件之间的相对位置和大小比例不变。
+适配边界：
+防止组件超出窗口边界，设置最小和最大限制。
+改进方案
+计算缩放比例：
+使用屏幕可用尺寸与设计尺寸的比率，分别计算宽度和高度的缩放因子。
+取较小值作为统一缩放比例，确保组件不溢出。
+动态调整控件：
+在 BaseQueryWidget 和其他类中，使用缩放比例重新计算 move 和 resize。
+主窗口和侧边栏也动态调整。
+最小尺寸保护：
+为关键控件（如下拉框、按钮）设置最小尺寸，避免过小。
+优化后的完整代码
+model.py 和 styles.qss
+（保持不变，略）
+views.py
+python
+from PySide6.QtWidgets import (QMainWindow, QWidget, QComboBox, QPushButton, QTableWidget, 
+                               QTableWidgetItem, QLabel, QLineEdit, QMessageBox)
+from PySide6.QtCore import Qt, Signal, Slot, QTimer
+from PySide6.QtGui import QIcon
+
+DESIGN_WIDTH, DESIGN_HEIGHT = 1634, 1054  # 设计分辨率
+
+class LoginWidget(QWidget):
+    login_signal = Signal(str, str)
+
+    def __init__(self):
+        super().__init__()
+        self.setGeometry(0, 0, 400, 300)  # 默认大小，controller 会调整
+        self.username_input = QLineEdit(self)
+        self.username_input.setPlaceholderText("Username")
+        self.password_input = QLineEdit(self)
+        self.password_input.setPlaceholderText("Password")
+        self.password_input.setEchoMode(QLineEdit.Password)
+        self.login_btn = QPushButton("Login", self)
+        self.login_btn.setObjectName("loginButton")
+
+    def adjust_geometry(self, scale):
+        self.username_input.move(int(80 * scale), int(80 * scale))
+        self.username_input.resize(int(240 * scale), int(32 * scale))
+        self.password_input.move(int(80 * scale), int(140 * scale))
+        self.password_input.resize(int(240 * scale), int(32 * scale))
+        self.login_btn.move(int(160 * scale), int(200 * scale))
+        self.login_btn.resize(int(80 * scale), int(32 * scale))
+
+    @Slot()
+    def emit_login(self):
+        self.login_signal.emit(self.username_input.text(), self.password_input.text())
+
+class MainWindow(QMainWindow):
+    def __init__(self, username):
+        super().__init__()
+        self.setWindowTitle("Information Query System")
+        self.username = username
+        self.setGeometry(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT)
+        self.central_widget = QWidget(self)
+        self.setCentralWidget(self.central_widget)
+
+        # 标题栏
+        self.title_bar = QWidget(self.central_widget)
+        self.title_bar.setObjectName("titleBar")
+        self.logo_label = QLabel("Logo", self.title_bar)
+        self.user_label = QLabel(f"User: {self.username}", self.title_bar)
+        self.logout_btn = QPushButton("Logout", self.title_bar)
+        self.logout_btn.setObjectName("logoutButton")
+
+        # 侧边栏
+        self.sidebar = QFrame(self.central_widget)
+        self.sidebar.setObjectName("sidebar")
+        self.cpu_btn = QPushButton("CPU Specs", self.sidebar)
+        self.cpu_btn.setIcon(QIcon("cpu_icon.png"))
+        self.cpu_btn.setIconSize(Qt.QSize(24, 24))
+        self.cpu_btn.setObjectName("sidebarButton")
+        self.server_btn = QPushButton("Server Data", self.sidebar)
+        self.server_btn.setObjectName("sidebarButton")
+        self.virtual_btn = QPushButton("Virtualization Perf", self.sidebar)
+        self.virtual_btn.setObjectName("sidebarButton")
+        self.clear_cache_btn = QPushButton("Clear Cache", self.sidebar)
+        self.clear_cache_btn.setObjectName("sidebarButton")
+
+        # 内容区域
+        self.content_stack = QStackedWidget(self.central_widget)
+
+    def adjust_geometry(self, scale):
+        """根据缩放比例调整组件位置和大小"""
+        # 标题栏
+        self.title_bar.move(0, 0)
+        self.title_bar.resize(int(DESIGN_WIDTH * scale), int(40 * scale))
+        self.logo_label.move(int(10 * scale), int(10 * scale))
+        self.logo_label.resize(int(50 * scale), int(20 * scale))
+        self.user_label.move(int(1400 * scale), int(10 * scale))
+        self.user_label.resize(int(150 * scale), int(20 * scale))
+        self.logout_btn.move(int(1550 * scale), int(5 * scale))
+        self.logout_btn.resize(int(80 * scale), int(30 * scale))
+
+        # 侧边栏
+        sidebar_width = int(200 * scale)
+        self.sidebar.move(0, int(40 * scale))
+        self.sidebar.resize(sidebar_width, int(1014 * scale))
+        self.cpu_btn.move(int(10 * scale), int(100 * scale))
+        self.cpu_btn.resize(int(180 * scale), int(40 * scale))
+        self.server_btn.move(int(10 * scale), int(150 * scale))
+        self.server_btn.resize(int(180 * scale), int(40 * scale))
+        self.virtual_btn.move(int(10 * scale), int(200 * scale))
+        self.virtual_btn.resize(int(180 * scale), int(40 * scale))
+        self.clear_cache_btn.move(int(10 * scale), int(250 * scale))
+        self.clear_cache_btn.resize(int(180 * scale), int(40 * scale))
+
+        # 内容区域
+        self.content_stack.move(sidebar_width, int(40 * scale))
+        self.content_stack.resize(int((DESIGN_WIDTH - 200) * scale), int(1014 * scale))
+
+class BaseQueryWidget(QWidget):
+    query_signal = Signal(str)
+    clear_signal = Signal()
+    modify_signal = Signal(str, int, str, str)
+
+    def __init__(self, model, column_count=2, headers=["Property", "Value"]):
+        super().__init__()
+        self.model = model
+        self.column_count = column_count
+        self.headers = headers
+        self.init_ui()
+
+    def init_ui(self):
+        self.cpu_combo = QComboBox(self)
+        self.cpu_combo.addItems(self.model.cpu_models)
+        self.query_btn = QPushButton("Query", self)
+        self.query_btn.setObjectName("actionButton")
+        self.query_btn.clicked.connect(lambda: self.query_signal.emit(self.cpu_combo.currentText()))
+        self.clear_btn = QPushButton("Clear", self)
+        self.clear_btn.setObjectName("actionButton")
+        self.clear_btn.clicked.connect(self.clear_signal)
+        self.table = QTableWidget(self)
+        self.table.setObjectName("dataTable")
+        self.table.setColumnCount(self.column_count)
+        self.table.setHorizontalHeaderLabels(self.headers)
+        self.table.horizontalHeader().setStretchLastSection(True)
+
+    def adjust_geometry(self, scale):
+        self.cpu_combo.move(int(138 * scale), int(164 * scale))
+        self.cpu_combo.resize(max(int(240 * scale), 150), max(int(32 * scale), 20))  # 最小尺寸保护
+        self.query_btn.move(int(400 * scale), int(164 * scale))
+        self.query_btn.resize(max(int(80 * scale), 60), max(int(32 * scale), 20))
+        self.clear_btn.move(int(500 * scale), int(164 * scale))
+        self.clear_btn.resize(max(int(80 * scale), 60), max(int(32 * scale), 20))
+        self.table.move(int(138 * scale), int(220 * scale))
+        self.table.resize(int(1200 * scale), int(800 * scale))
+
+    def update_table(self, cpu_model=None):
+        QTimer.singleShot(0, lambda: self._update_table_async(cpu_model))
+
+    def _update_table_async(self, cpu_model=None):
+        pass
+
+    def clear_table(self):
+        self.table.setRowCount(0)
+
+class CPUSpecsWidget(BaseQueryWidget):
+    def __init__(self, model):
+        super().__init__(model, column_count=2, headers=["Property", "Value"])
+        self.combos = []
+        self.add_btn = QPushButton("+", self)
+        self.add_btn.setObjectName("actionButton")
+        self.add_btn.clicked.connect(self.add_combo)
+        self.remove_btn = QPushButton("-", self)
+        self.remove_btn.setObjectName("actionButton")
+        self.remove_btn.clicked.connect(self.remove_combo)
+        for _ in range(5):
+            self.add_combo()
+
+    def adjust_geometry(self, scale):
+        super().adjust_geometry(scale)
+        self.add_btn.move(int(600 * scale), int(164 * scale))
+        self.add_btn.resize(max(int(32 * scale), 20), max(int(32 * scale), 20))
+        self.remove_btn.move(int(640 * scale), int(164 * scale))
+        self.remove_btn.resize(max(int(32 * scale), 20), max(int(32 * scale), 20))
+        for i, combo in enumerate(self.combos):
+            combo.move(int(138 * scale), int(164 * scale + i * 40 * scale))
+            combo.resize(max(int(240 * scale), 150), max(int(32 * scale), 20))
+
+    def add_combo(self):
+        combo = QComboBox(self)
+        combo.addItems(self.model.cpu_models)
+        combo.currentTextChanged.connect(lambda text: self.query_signal.emit(text))
+        combo.show()
+        self.combos.append(combo)
+        self.adjust_geometry(self.scale_factor if hasattr(self, 'scale_factor') else 1.0)
+
+    def remove_combo(self):
+        if len(self.combos) > 1:
+            combo = self.combos.pop()
+            combo.deleteLater()
+            self.table.clearContents()
+            self.adjust_geometry(self.scale_factor if hasattr(self, 'scale_factor') else 1.0)
+
+    def _update_table_async(self, cpu_model=None):
+        if cpu_model is None:
+            cpu_model = self.cpu_combo.currentText()
+        specs = self.model.get_cpu_specs(cpu_model)
+        self.table.setRowCount(len(specs))
+        for i, (key, value) in enumerate(specs.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(str(value)))
+        self.table.resizeColumnsToContents()
+
+class ServerDataWidget(BaseQueryWidget):
+    def __init__(self, model):
+        super().__init__(model, column_count=4, headers=["Property", "Value", "Modify", "Link"])
+        self.extra_combo = QComboBox(self)
+        self.extra_combo.addItems(["Option1", "Option2"])
+
+    def adjust_geometry(self, scale):
+        super().adjust_geometry(scale)
+        self.extra_combo.move(int(138 * scale), int(124 * scale))
+        self.extra_combo.resize(max(int(240 * scale), 150), max(int(32 * scale), 20))
+
+    def _update_table_async(self, cpu_model=None):
+        if cpu_model is None:
+            cpu_model = self.cpu_combo.currentText()
+        data = self.model.get_server_data(cpu_model)
+        self.table.setRowCount(len(data))
+        modify_values = {}
+        for row in range(self.table.rowCount()):
+            combo = self.table.cellWidget(row, 2)
+            if combo:
+                modify_values[row] = combo.currentText()
+
+        for i, (key, value) in enumerate(data.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(value))
+            combo = QComboBox()
+            combo.addItems(["Low", "Medium", "High"])
+            combo.setCurrentText(modify_values.get(i, "Medium"))
+            combo.currentTextChanged.connect(lambda text, r=i, k=key: self.modify_signal.emit(cpu_model, r, k, text))
+            self.table.setCellWidget(i, 2, combo)
+            btn = QPushButton("Link")
+            btn.setObjectName("linkButton")
+            btn.clicked.connect(self.open_link)
+            self.table.setCellWidget(i, 3, btn)
+        self.table.resizeColumnsToContents()
+
+    def open_link(self):
+        from PySide6.QtGui import QDesktopServices, QUrl
+        QDesktopServices.openUrl(QUrl("https://www.baidu.com"))
+        print("Opening Baidu homepage")
+
+class VirtualizationPerfWidget(BaseQueryWidget):
+    def __init__(self, model):
+        super().__init__(model, column_count=2, headers=["Property", "Value"])
+
+    def _update_table_async(self, cpu_model=None):
+        if cpu_model is None:
+            cpu_model = self.cpu_combo.currentText()
+        data = self.model.get_virtualization_data(cpu_model)
+        self.table.setRowCount(len(data))
+        for i, (key, value) in enumerate(data.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(str(value)))
+        self.table.resizeColumnsToContents()
+controller.py
+python
+from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import Slot, QSize
+from PySide6.QtGui import QScreen
+from collections import OrderedDict
+from views import MainWindow, LoginWidget, CPUSpecsWidget, ServerDataWidget, VirtualizationPerfWidget
+
+class BaseSystemController:
+    def __init__(self, model, login_widget_class=LoginWidget, main_window_class=MainWindow, max_cache_size=3):
+        self.model = model
+        self.login_widget_class = login_widget_class
+        self.main_window_class = main_window_class
+        self.max_cache_size = max_cache_size
+        self.main_window = None
+        self.login_widget = None
+        self.page_cache = OrderedDict()
+        
+        self._init_login_widget()
+
+    def _init_login_widget(self):
+        self.login_widget = self.login_widget_class()
+        self._adjust_widget_size(self.login_widget)
+        self.login_widget.login_signal.connect(self._on_login)
+
+    def _adjust_widget_size(self, widget, is_login_widget=True):
+        screen = widget.screen()
+        screen_size = screen.availableSize()
+        scale = min(screen_size.width() / DESIGN_WIDTH, screen_size.height() / DESIGN_HEIGHT)
+        if is_login_widget:
+            width = screen_size.width() * (0.25 if screen_size.width() < 1600 else 0.3)
+            height = screen_size.height() * (0.25 if screen_size.width() < 1600 else 0.3)
+            widget.resize(int(width), int(height))
+            widget.setMinimumSize(QSize(300, 200))
+            widget.setMaximumSize(QSize(500, 400))
+        else:
+            width = screen_size.width() * (0.7 if screen_size.width() < 1600 else 0.8)
+            height = screen_size.height() * (0.7 if screen_size.width() < 1600 else 0.8)
+            widget.resize(int(width), int(height))
+            widget.setMinimumSize(QSize(800, 600))
+            widget.adjust_geometry(scale)  # 调整内部组件
+        widget.scale_factor = scale  # 保存缩放比例供子控件使用
+
+    def _init_main_window(self, username):
+        self.main_window = self.main_window_class(username)
+        self._adjust_widget_size(self.main_window, is_login_widget=False)
+        self.main_window.logout_btn.clicked.connect(self._on_logout)
+        self.main_window.clear_cache_btn.clicked.connect(self._clear_all_pages)
+        self._register_pages()
+
+    def _register_pages(self):
+        raise NotImplementedError("Subclasses must implement _register_pages")
+
+    def _switch_page(self, name):
+        if name in self.page_cache:
+            self.page_cache.move_to_end(name)
+            print(f"Switched to cached page: {name}")
+        else:
+            if len(self.page_cache) >= self.max_cache_size:
+                self._remove_oldest_page()
+            widget_class = self.pages[name][0]
+            self.page_cache[name] = widget_class(self.model)
+            self.page_cache[name].adjust_geometry(self.main_window.scale_factor)
+            self.main_window.content_stack.addWidget(self.page_cache[name])
+            self._connect_page_signals(self.page_cache[name])
+            print(f"Created and switched to page: {name}")
+        self.main_window.content_stack.setCurrentWidget(self.page_cache[name])
+
+    def _remove_oldest_page(self):
+        name, widget = self.page_cache.popitem(last=False)
+        self.main_window.content_stack.removeWidget(widget)
+        widget.deleteLater()
+        print(f"Removed oldest page: {name}")
+
+    def _connect_page_signals(self, widget):
+        widget.query_signal.connect(widget.update_table)
+        widget.clear_signal.connect(widget.clear_table)
+
+    @Slot(str, str)
+    def _on_login(self, username, password):
+        if self.model.validate_login(username, password):
+            self._init_main_window(username)
+            self.main_window.show()
+            self.login_widget.hide()
+        else:
+            QMessageBox.warning(self.login_widget, "Login Failed", "Invalid username or password")
+
+    @Slot()
+    def _on_logout(self):
+        self.main_window.hide()
+        self.login_widget.show()
+
+    @Slot()
+    def _clear_all_pages(self):
+        while self.page_cache:
+            self._remove_oldest_page()
+        QMessageBox.information(self.main_window, "Cache Cleared", "All cached pages have been destroyed.")
+
+    def start(self):
+        self.login_widget.show()
+
+class SpecificSystemController(BaseSystemController):
+    def _register_pages(self):
+        self.pages = {
+            "cpu_specs": (CPUSpecsWidget, self.main_window.cpu_btn),
+            "server_data": (ServerDataWidget, self.main_window.server_btn),
+            "virtualization_perf": (VirtualizationPerfWidget, self.main_window.virtual_btn)
+        }
+        for name, (_, button) in self.pages.items():
+            button.clicked.connect(lambda n=name: self._switch_page(n))
+
+    def _connect_page_signals(self, widget):
+        super()._connect_page_signals(widget)
+        if isinstance(widget, ServerDataWidget):
+            widget.modify_signal.connect(self._modify_server_data)
+
+    @Slot(str, int, str, str)
+    def _modify_server_data(self, cpu_model, row, key, text):
+        self.model.update_server_data(cpu_model, key, f"{text} ({self.model.get_server_data(cpu_model)[key].split(' (')[0]})")
+        widget = self.main_window.content_stack.currentWidget()
+        if widget:
+            widget.update_table()
+        print(f"Row {row} modified: {key} = {self.model.get_server_data(cpu_model)[key]}")
+styles.qss
+（保持不变，略）
+main.py
+python
+from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt, QFile, QTextStream
+from PySide6.QtGui import QFont
+from model import SystemModel
+from controller import SpecificSystemController
+
+def load_stylesheet(app, filename="styles.qss"):
+    file = QFile(filename)
+    if file.open(QFile.ReadOnly | QFile.Text):
+        stream = QTextStream(file)
+        app.setStyleSheet(stream.readAll())
+        file.close()
+
+if __name__ == "__main__":
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+
+    app = QApplication(sys.argv)
+    
+    font = QFont("Arial", 10)
+    app.setFont(font)
+    
+    load_stylesheet(app, "styles.qss")
+    
+    model = SystemModel()
+    controller = SpecificSystemController(model, max_cache_size=3)
+    controller.start()
+    sys.exit(app.exec())
+动态缩放优化的实现
+缩放比例计算
+在 _adjust_widget_size 中：
+python
+scale = min(screen_size.width() / DESIGN_WIDTH, screen_size.height() / DESIGN_HEIGHT)
+DESIGN_WIDTH=1634, DESIGN_HEIGHT=1054 是基准分辨率。
+scale 取宽度和高度缩放比例的最小值，确保组件不溢出。
+组件动态调整
+主窗口：
+MainWindow.adjust_geometry(scale)：根据比例调整标题栏、侧边栏和内容区。
+侧边栏宽度从 200 动态缩放到 200 * scale，内容区随之调整。
+下拉框和其他控件：
+BaseQueryWidget.adjust_geometry(scale)：
+下拉框：x=138*scale, y=164*scale, width=240*scale, height=32*scale。
+按钮和表格按比例缩放，设置最小尺寸（如下拉框宽度最小 150px）。
+CPUSpecsWidget：附加下拉框 Y 轴递增（164 + i * 40 * scale）。
+最小尺寸保护：
+使用 max() 确保控件不小于可操作尺寸（如按钮宽度最小 60px，高度 20px）。
+控制器集成
+_adjust_widget_size 调用 adjust_geometry，将缩放比例保存到 widget.scale_factor，供子控件动态调整使用。
+测试步骤
+运行 main.py，输入 admin 和 123456。
+验证动态缩放：
+笔记本（1366x768）：
+缩放比例约 0.835（1366/1634），下拉框位置约 (115, 137)，大小约 (200x27)。
+窗口占 70%，组件比例缩小但清晰。
+台式机（2560x1440）：
+缩放比例约 1.36（2560/1634 受高度限制为 1440/1054），下拉框位置约 (188, 223)，大小约 (326x43)。
+窗口占 80%，组件放大。
+测试状态保持：
+添加下拉框、修改表格，切换页面，确认缓存内状态保留。
+验证边界：
+小屏幕无溢出，大屏幕组件不过小。
+示例输出
+# 笔记本 (1366x768)
+Created and switched to page: cpu_specs  # 下拉框约 (115, 137, 200, 27)
+Switched to cached page: server_data
+
+# 台式机 (2560x1440)
+Created and switched to page: cpu_specs  # 下拉框约 (188, 223, 326, 43)
+Switched to cached page: server_data
+优化亮点
+动态缩放：组件位置和大小随屏幕分辨率调整，保持设计比例。
+边界保护：最小尺寸确保小屏幕可用性，大屏幕不过大。
+代码复用：adjust_geometry 在父类和子类中统一调用，减少重复。
+如果您有更多组件坐标需要动态调整，或需要进一步优化（如动画效果），请提供详情！
+
+
+
+
+
+
+
+
+
+
+
 按照您的要求，我将去掉主页侧边栏的收缩按钮（toggle_btn），并结合之前的所有功能（包括分辨率适配、动态渲染、信号优化等），输出完整的优化代码。以下是完整实现：
 完整代码
 model.py
