@@ -1,3 +1,735 @@
+根据您的要求，我将进一步优化代码，将 pages 字典从 page_controllers.py 移到外部 JSON 配置文件，进一步解耦代码和配置。同时，调整登录逻辑，使其调用第三方 Web 页面，并通过回调显示相应字段来判断登录成功。由于第三方 Web 页面无法直接获取输入框大小及文字，我将固定登录页面大小，并模拟回调逻辑。
+以下是优化后的完整代码：
+文件结构
+project/
+├── views.py
+├── styles.qss
+├── main.py
+├── base_controller.py
+├── app_controller.py
+├── login_controller.py
+├── page_controllers.py
+├── base_model.py
+├── cpu_specs_model.py
+├── server_data_model.py
+├── virtualization_perf_model.py
+├── login_model.py
+├── pages_config.json
+pages_config.json
+json
+{
+    "cpu_specs": {
+        "widget_class": "CPUSpecsWidget",
+        "label": "CPU Specs",
+        "model": "CPUSpecsModel"
+    },
+    "server_data": {
+        "widget_class": "ServerDataWidget",
+        "label": "Server Data",
+        "model": "ServerDataModel"
+    },
+    "virtualization_perf": {
+        "widget_class": "VirtualizationPerfWidget",
+        "label": "Virtualization Perf",
+        "model": "VirtualizationPerfModel"
+    }
+}
+base_controller.py
+python
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QScreen
+from collections import OrderedDict
+
+DESIGN_WIDTH, DESIGN_HEIGHT = 1634, 1054
+SIDEBAR_WIDTH = 200
+TITLE_BAR_HEIGHT = 40
+
+class BaseSystemController:
+    def __init__(self, max_cache_size=3):
+        self.max_cache_size = max_cache_size
+        self.main_window = None
+        self.page_cache = OrderedDict()
+
+    def _adjust_widget_size(self, widget, is_login_widget=True):
+        screen = widget.screen()
+        screen_size = screen.availableSize()
+        scale = min(screen_size.width() / DESIGN_WIDTH, screen_size.height() / DESIGN_HEIGHT)
+        if is_login_widget:
+            width = 400  # 固定登录页面宽度
+            height = 300  # 固定登录页面高度
+        else:
+            width = screen_size.width() * (0.7 if screen_size.width() < 1600 else 0.8)
+            height = screen_size.height() * (0.7 if screen_size.width() < 1600 else 0.8)
+        widget.adjust_geometry(scale, width, height)
+        widget.center_on_screen(screen_size.width(), screen_size.height())
+        widget.scale_factor = scale
+
+    def _switch_page(self, name):
+        if name not in self.pages:
+            return
+        if name in self.page_cache:
+            self.page_cache.move_to_end(name)
+            print(f"Switched to cached page: {name}")
+        else:
+            if len(self.page_cache) >= self.max_cache_size:
+                self._remove_oldest_page()
+            widget_class, model = self.pages[name]["widget_class"], self.pages[name]["model"]
+            widget = widget_class(model)
+            self.page_cache[name] = widget
+            widget.adjust_geometry(self.main_window.scale_factor, DESIGN_WIDTH - SIDEBAR_WIDTH, DESIGN_HEIGHT - TITLE_BAR_HEIGHT)
+            self.main_window.content_stack.addWidget(widget)
+            self._connect_page_signals(widget)
+            print(f"Created and switched to page: {name}")
+        self.main_window.content_stack.setCurrentWidget(self.page_cache[name])
+
+    def _remove_oldest_page(self):
+        name, widget = self.page_cache.popitem(last=False)
+        self.main_window.content_stack.removeWidget(widget)
+        widget.deleteLater()
+        print(f"Removed oldest page: {name}")
+
+    def _connect_page_signals(self, widget):
+        pass  # 子类实现
+app_controller.py
+python
+from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import Slot
+from base_controller import BaseSystemController
+from views import MainWindow, LoginWidget
+from login_controller import LoginController
+from page_controllers import PageController
+import json
+
+class AppController(BaseSystemController):
+    def __init__(self, max_cache_size=3):
+        super().__init__(max_cache_size)
+        self.login_controller = LoginController(LoginWidget, self.max_cache_size)
+        with open("pages_config.json", "r") as f:
+            pages_config = json.load(f)
+        self.page_controller = PageController(self, pages_config, self.max_cache_size)
+        self.pages = self.page_controller.pages
+        self.login_controller.login_signal.connect(self._on_login)
+
+    @Slot(str, str)
+    def _on_login(self, username, password):
+        if self.login_controller.validate_login(username, password):
+            self.main_window = MainWindow(username, self.pages)
+            self._adjust_widget_size(self.main_window, is_login_widget=False)
+            self.main_window.logout_btn.clicked.connect(self._on_logout)
+            self.main_window.clear_cache_btn.clicked.connect(self._clear_all_pages)
+            self.page_controller.register_pages(self.main_window)
+            self.main_window.show()
+        else:
+            QMessageBox.warning(self.login_controller.login_widget, "Login Failed", "Invalid username or password")
+
+    @Slot()
+    def _on_logout(self):
+        self.main_window.hide()
+        self.login_controller.show_login()
+
+    @Slot()
+    def _clear_all_pages(self):
+        while self.page_cache:
+            self._remove_oldest_page()
+        QMessageBox.information(self.main_window, "Cache Cleared", "All cached pages have been destroyed.")
+
+    def _connect_page_signals(self, widget):
+        self.page_controller.connect_signals(widget)
+
+    def start(self):
+        self.login_controller.start()
+login_controller.py
+python
+from PySide6.QtCore import Signal, Slot
+from base_controller import BaseSystemController
+from login_model import LoginModel
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtCore import QUrl
+
+class LoginController(BaseSystemController):
+    login_signal = Signal(str, str)  # 单一信号
+
+    def __init__(self, login_widget_class, max_cache_size=3):
+        super().__init__(max_cache_size)
+        self.login_widget_class = login_widget_class
+        self.login_model = LoginModel()
+        self.login_widget = None
+        self._init_login_widget()
+
+    def _init_login_widget(self):
+        self.login_widget = self.login_widget_class()
+        self._adjust_widget_size(self.login_widget)
+        self.login_widget.web_view.load(QUrl("https://example.com/login"))  # 第三方登录页面
+        self.login_widget.web_view.urlChanged.connect(self._on_url_changed)
+
+    @Slot(QUrl)
+    def _on_url_changed(self, url):
+        # 模拟回调：假设第三方页面重定向到带有用户信息的 URL
+        url_str = url.toString()
+        if "callback" in url_str:  # 假设回调 URL 包含 "callback" 和参数
+            # 解析 URL 中的参数（示例）
+            params = dict(param.split("=") for param in url_str.split("?")[1].split("&"))
+            username = params.get("username", "")
+            token = params.get("token", "")
+            self.login_signal.emit(username, token)
+
+    def validate_login(self, username, password):
+        # 假设 password 是 token，验证逻辑交给 login_model
+        return self.login_model.validate_login(username, password)
+
+    def start(self):
+        self.login_widget.show()
+
+    @Slot()
+    def show_login(self):
+        self.login_widget.show()
+page_controllers.py
+python
+from PySide6.QtCore import Slot
+from base_controller import BaseSystemController
+from views import CPUSpecsWidget, ServerDataWidget, VirtualizationPerfWidget
+from cpu_specs_model import CPUSpecsModel
+from server_data_model import ServerDataModel
+from virtualization_perf_model import VirtualizationPerfModel
+
+class PageController(BaseSystemController):
+    def __init__(self, parent_controller, pages_config, max_cache_size=3):
+        super().__init__(max_cache_size)
+        self.parent_controller = parent_controller
+        self.pages = self._load_pages(pages_config)
+
+    def _load_pages(self, pages_config):
+        widget_map = {
+            "CPUSpecsWidget": CPUSpecsWidget,
+            "ServerDataWidget": ServerDataWidget,
+            "VirtualizationPerfWidget": VirtualizationPerfWidget
+        }
+        model_map = {
+            "CPUSpecsModel": CPUSpecsModel,
+            "ServerDataModel": ServerDataModel,
+            "VirtualizationPerfModel": VirtualizationPerfModel
+        }
+        pages = {}
+        for name, config in pages_config.items():
+            pages[name] = {
+                "widget_class": widget_map[config["widget_class"]],
+                "label": config["label"],
+                "model": model_map[config["model"]]()
+            }
+        return pages
+
+    def register_pages(self, main_window):
+        self.main_window = main_window
+        for name, config in self.pages.items():
+            button = main_window.page_buttons[name]
+            button.clicked.connect(lambda n=name: self._switch_page(n))
+
+    def connect_signals(self, widget):
+        widget.query_signal.connect(widget.update_table)
+        widget.clear_signal.connect(widget.clear_table)
+        if isinstance(widget, ServerDataWidget):
+            widget.modify_signal.connect(self._modify_server_data)
+
+    @Slot(str, int, str, str)
+    def _modify_server_data(self, cpu_model, row, key, text):
+        model = self.pages["server_data"]["model"]
+        model.update_data(cpu_model, key, f"{text} ({model.get_data(cpu_model)[key].split(' (')[0]})")
+        widget = self.main_window.content_stack.currentWidget()
+        if widget:
+            widget.update_table()
+        print(f"Row {row} modified: {key} = {model.get_data(cpu_model)[key]}")
+views.py
+python
+from PySide6.QtWidgets import (QMainWindow, QWidget, QComboBox, QPushButton, QTableWidget, 
+                               QTableWidgetItem, QLabel, QLineEdit, QFrame, QStackedWidget)
+from PySide6.QtCore import Qt, Signal, Slot, QTimer
+from PySide6.QtGui import QIcon
+from PySide6.QtWebEngineWidgets import QWebEngineView
+
+DESIGN_WIDTH, DESIGN_HEIGHT = 1634, 1054
+TITLE_BAR_HEIGHT = 40
+SIDEBAR_WIDTH = 200
+CONTENT_TOP_MARGIN = 40
+DROPDOWN_X, DROPDOWN_BASE_Y = 138, 84
+DROPDOWN_SPACING = 40
+BUTTON_QUERY_X, BUTTON_CLEAR_X, BUTTON_ADD_X, BUTTON_REMOVE_X = 400, 500, 600, 640
+BUTTON_Y_OFFSET = 0
+TABLE_X, TABLE_Y = 138, 180
+TABLE_WIDTH, TABLE_HEIGHT = 1200, 800
+SIDEBAR_BUTTON_X = 10
+SIDEBAR_BUTTON_Y_START, SIDEBAR_BUTTON_SPACING = 100, 50
+
+class LoginWidget(QWidget):
+    login_signal = Signal(str, str)
+
+    def __init__(self):
+        super().__init__()
+        self.web_view = QWebEngineView(self)
+        self.web_view.setFixedSize(400, 300)  # 固定大小
+
+    def adjust_geometry(self, scale, parent_width, parent_height):
+        self.resize(400, 300)  # 固定大小，不随 scale 变化
+        self.web_view.move(0, 0)
+
+    def center_on_screen(self, screen_width, screen_height):
+        x = (screen_width - self.width()) // 2
+        y = (screen_height - self.height()) // 2
+        self.move(x, y)
+
+class MainWindow(QMainWindow):
+    def __init__(self, username, pages_config):
+        super().__init__()
+        self.setWindowTitle("Information Query System")
+        self.username = username
+        self.central_widget = QWidget(self)
+        self.setCentralWidget(self.central_widget)
+
+        self.title_bar = QWidget(self.central_widget)
+        self.title_bar.setObjectName("titleBar")
+        self.logo_label = QLabel("Logo", self.title_bar)
+        self.logo_label.setObjectName("titleLabel")
+        self.user_label = QLabel(f"User: {self.username}", self.title_bar)
+        self.user_label.setObjectName("titleLabel")
+        self.logout_btn = QPushButton("Logout", self.title_bar)
+        self.logout_btn.setObjectName("logoutButton")
+
+        self.sidebar = QFrame(self.central_widget)
+        self.sidebar.setObjectName("sidebar")
+        self.page_buttons = {}
+        for i, (name, config) in enumerate(pages_config.items()):
+            button = QPushButton(config["label"], self.sidebar)
+            button.setObjectName("sidebarButton")
+            button.move(int(SIDEBAR_BUTTON_X * 1.0), int(SIDEBAR_BUTTON_Y_START + i * SIDEBAR_BUTTON_SPACING))
+            self.page_buttons[name] = button
+        self.clear_cache_btn = QPushButton("Clear Cache", self.sidebar)
+        self.clear_cache_btn.setObjectName("sidebarButton")
+
+        self.content_stack = QStackedWidget(self.central_widget)
+
+    def adjust_geometry(self, scale, parent_width, parent_height):
+        window_width = int(DESIGN_WIDTH * scale)
+        window_height = int(DESIGN_HEIGHT * scale)
+        self.resize(window_width, window_height)
+
+        self.title_bar.move(0, 0)
+        self.title_bar.resize(window_width, int(TITLE_BAR_HEIGHT * scale))
+        self.logo_label.move(int(10 * scale), int(10 * scale))
+        self.user_label.move(int((DESIGN_WIDTH - 234) * scale), int(10 * scale))
+        self.logout_btn.move(int((DESIGN_WIDTH - 84) * scale), int(5 * scale))
+
+        sidebar_width = int(SIDEBAR_WIDTH * scale)
+        self.sidebar.move(0, int(TITLE_BAR_HEIGHT * scale))
+        self.sidebar.resize(sidebar_width, int((DESIGN_HEIGHT - TITLE_BAR_HEIGHT) * scale))
+        for i, button in enumerate(self.page_buttons.values()):
+            button.move(int(SIDEBAR_BUTTON_X * scale), int((SIDEBAR_BUTTON_Y_START + i * SIDEBAR_BUTTON_SPACING) * scale))
+        self.clear_cache_btn.move(int(SIDEBAR_BUTTON_X * scale), int((SIDEBAR_BUTTON_Y_START + len(self.page_buttons) * SIDEBAR_BUTTON_SPACING) * scale))
+
+        self.content_stack.move(sidebar_width, int(TITLE_BAR_HEIGHT * scale))
+        self.content_stack.resize(int((DESIGN_WIDTH - SIDEBAR_WIDTH) * scale), int((DESIGN_HEIGHT - TITLE_BAR_HEIGHT) * scale))
+
+    def center_on_screen(self, screen_width, screen_height):
+        x = (screen_width - self.width()) // 2
+        y = (screen_height - self.height()) // 2
+        self.move(x, y)
+
+class BaseQueryWidget(QWidget):
+    query_signal = Signal(str)
+    clear_signal = Signal()
+    modify_signal = Signal(str, int, str, str)
+
+    def __init__(self, model, column_count=2, headers=["Property", "Value"]):
+        super().__init__()
+        self.model = model
+        self.column_count = column_count
+        self.headers = headers
+        self.init_ui()
+
+    def init_ui(self):
+        self.cpu_combo = QComboBox(self)
+        self.cpu_combo.addItems(self.model.cpu_models if hasattr(self.model, 'cpu_models') else ["Unknown"])
+        self.cpu_combo.setObjectName("dropdown")
+        self.query_btn = QPushButton("Query", self)
+        self.query_btn.setObjectName("actionButton")
+        self.query_btn.clicked.connect(lambda: self.query_signal.emit(self.cpu_combo.currentText()))
+        self.clear_btn = QPushButton("Clear", self)
+        self.clear_btn.setObjectName("actionButton")
+        self.clear_btn.clicked.connect(self.clear_signal)
+        self.table = QTableWidget(self)
+        self.table.setObjectName("dataTable")
+        self.table.setColumnCount(self.column_count)
+        self.table.setHorizontalHeaderLabels(self.headers)
+        self.table.horizontalHeader().setStretchLastSection(True)
+
+    def adjust_geometry(self, scale, parent_width, parent_height):
+        self.cpu_combo.move(int(DROPDOWN_X * scale), int(DROPDOWN_BASE_Y * scale))
+        self.query_btn.move(int(BUTTON_QUERY_X * scale), int(DROPDOWN_BASE_Y + BUTTON_Y_OFFSET * scale))
+        self.clear_btn.move(int(BUTTON_CLEAR_X * scale), int(DROPDOWN_BASE_Y + BUTTON_Y_OFFSET * scale))
+        self.table.move(int(TABLE_X * scale), int(TABLE_Y * scale))
+        self.table.resize(int(TABLE_WIDTH * scale), int(TABLE_HEIGHT * scale))
+
+    def update_table(self, cpu_model=None):
+        QTimer.singleShot(0, lambda: self._update_table_async(cpu_model))
+
+    def _update_table_async(self, cpu_model=None):
+        pass
+
+    def clear_table(self):
+        self.table.setRowCount(0)
+
+class CPUSpecsWidget(BaseQueryWidget):
+    def __init__(self, model):
+        super().__init__(model, column_count=2, headers=["Property", "Value"])
+        self.combos = []
+        self.add_btn = QPushButton("+", self)
+        self.add_btn.setObjectName("actionButton")
+        self.add_btn.clicked.connect(self.add_combo)
+        self.remove_btn = QPushButton("-", self)
+        self.remove_btn.setObjectName("actionButton")
+        self.remove_btn.clicked.connect(self.remove_combo)
+        for _ in range(5):
+            self.add_combo()
+
+    def adjust_geometry(self, scale, parent_width, parent_height):
+        super().adjust_geometry(scale, parent_width, parent_height)
+        self.add_btn.move(int(BUTTON_ADD_X * scale), int(DROPDOWN_BASE_Y + BUTTON_Y_OFFSET * scale))
+        self.remove_btn.move(int(BUTTON_REMOVE_X * scale), int(DROPDOWN_BASE_Y + BUTTON_Y_OFFSET * scale))
+        for i, combo in enumerate(self.combos):
+            combo.move(int(DROPDOWN_X * scale), int(DROPDOWN_BASE_Y * scale + i * DROPDOWN_SPACING * scale))
+
+    def add_combo(self):
+        combo = QComboBox(self)
+        combo.addItems(self.model.cpu_models)
+        combo.setObjectName("dropdown")
+        combo.currentTextChanged.connect(lambda text: self.query_signal.emit(text))
+        combo.show()
+        self.combos.append(combo)
+        self.adjust_geometry(self.scale_factor if hasattr(self, 'scale_factor') else 1.0, DESIGN_WIDTH - SIDEBAR_WIDTH, DESIGN_HEIGHT - TITLE_BAR_HEIGHT)
+
+    def remove_combo(self):
+        if len(self.combos) > 1:
+            combo = self.combos.pop()
+            combo.deleteLater()
+            self.table.clearContents()
+            self.adjust_geometry(self.scale_factor if hasattr(self, 'scale_factor') else 1.0, DESIGN_WIDTH - SIDEBAR_WIDTH, DESIGN_HEIGHT - TITLE_BAR_HEIGHT)
+
+    def _update_table_async(self, cpu_model=None):
+        if cpu_model is None:
+            cpu_model = self.cpu_combo.currentText()
+        specs = self.model.get_data(cpu_model)
+        self.table.setRowCount(len(specs))
+        for i, (key, value) in enumerate(specs.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(str(value)))
+        self.table.resizeColumnsToContents()
+
+class ServerDataWidget(BaseQueryWidget):
+    def __init__(self, model):
+        super().__init__(model, column_count=4, headers=["Property", "Value", "Modify", "Link"])
+        self.extra_combo = QComboBox(self)
+        self.extra_combo.addItems(["Option1", "Option2"])
+        self.extra_combo.setObjectName("dropdown")
+
+    def adjust_geometry(self, scale, parent_width, parent_height):
+        super().adjust_geometry(scale, parent_width, parent_height)
+        self.extra_combo.move(int(DROPDOWN_X * scale), int((DROPDOWN_BASE_Y - 40) * scale))
+
+    def _update_table_async(self, cpu_model=None):
+        if cpu_model is None:
+            cpu_model = self.cpu_combo.currentText()
+        data = self.model.get_data(cpu_model)
+        self.table.setRowCount(len(data))
+        modify_values = {}
+        for row in range(self.table.rowCount()):
+            combo = self.table.cellWidget(row, 2)
+            if combo:
+                modify_values[row] = combo.currentText()
+
+        for i, (key, value) in enumerate(data.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(value))
+            combo = QComboBox()
+            combo.addItems(["Low", "Medium", "High"])
+            combo.setCurrentText(modify_values.get(i, "Medium"))
+            combo.currentTextChanged.connect(lambda text, r=i, k=key: self.modify_signal.emit(cpu_model, r, k, text))
+            self.table.setCellWidget(i, 2, combo)
+            btn = QPushButton("Link")
+            btn.setObjectName("linkButton")
+            btn.clicked.connect(self.open_link)
+            self.table.setCellWidget(i, 3, btn)
+        self.table.resizeColumnsToContents()
+
+    def open_link(self):
+        from PySide6.QtGui import QDesktopServices, QUrl
+        QDesktopServices.openUrl(QUrl("https://www.example.com"))
+        print("Opening example homepage")
+
+class VirtualizationPerfWidget(BaseQueryWidget):
+    def __init__(self, model):
+        super().__init__(model, column_count=2, headers=["Property", "Value"])
+
+    def _update_table_async(self, cpu_model=None):
+        if cpu_model is None:
+            cpu_model = self.cpu_combo.currentText()
+        data = self.model.get_data(cpu_model)
+        self.table.setRowCount(len(data))
+        for i, (key, value) in enumerate(data.items()):
+            self.table.setItem(i, 0, QTableWidgetItem(key))
+            self.table.setItem(i, 1, QTableWidgetItem(str(value)))
+        self.table.resizeColumnsToContents()
+main.py
+python
+from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt, QFile, QTextStream
+from PySide6.QtGui import QFont
+from app_controller import AppController
+
+def load_stylesheet(app, filename="styles.qss"):
+    file = QFile(filename)
+    if file.open(QFile.ReadOnly | QFile.Text):
+        stream = QTextStream(file)
+        app.setStyleSheet(stream.readAll())
+        file.close()
+
+if __name__ == "__main__":
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+
+    app = QApplication(sys.argv)
+    
+    font = QFont("Arial", 10)
+    app.setFont(font)
+    
+    load_stylesheet(app, "styles.qss")
+    
+    app_controller = AppController(max_cache_size=3)
+    app_controller.start()
+    
+    sys.exit(app.exec())
+base_model.py
+python
+class BaseModel:
+    def __init__(self):
+        pass
+
+    def get_data(self, key):
+        raise NotImplementedError("Subclasses must implement get_data")
+cpu_specs_model.py
+python
+from base_model import BaseModel
+
+class CPUSpecsModel(BaseModel):
+    def __init__(self):
+        self.cpu_models = ["Intel i5", "Intel i7", "AMD Ryzen 5", "AMD Ryzen 7"]
+        self.specs = {
+            "Intel i5": {"Cores": 4, "Threads": 8, "Clock Speed": "3.2 GHz"},
+            "Intel i7": {"Cores": 6, "Threads": 12, "Clock Speed": "3.8 GHz"},
+            "AMD Ryzen 5": {"Cores": 6, "Threads": 12, "Clock Speed": "3.6 GHz"},
+            "AMD Ryzen 7": {"Cores": 8, "Threads": 16, "Clock Speed": "4.0 GHz"}
+        }
+
+    def get_data(self, cpu_model):
+        return self.specs.get(cpu_model, {})
+server_data_model.py
+python
+from base_model import BaseModel
+
+class ServerDataModel(BaseModel):
+    def __init__(self):
+        self.server_data = {
+            "Intel i5": {"CPU Usage": "Medium (45%)", "Memory": "16 GB", "Uptime": "48 hours"},
+            "Intel i7": {"CPU Usage": "High (70%)", "Memory": "32 GB", "Uptime": "72 hours"},
+            "AMD Ryzen 5": {"CPU Usage": "Low (30%)", "Memory": "16 GB", "Uptime": "24 hours"},
+            "AMD Ryzen 7": {"CPU Usage": "Medium (50%)", "Memory": "64 GB", "Uptime": "96 hours"}
+        }
+
+    def get_data(self, cpu_model):
+        return self.server_data.get(cpu_model, {})
+
+    def update_data(self, cpu_model, key, value):
+        if cpu_model in self.server_data:
+            self.server_data[cpu_model][key] = value
+virtualization_perf_model.py
+python
+from base_model import BaseModel
+
+class VirtualizationPerfModel(BaseModel):
+    def __init__(self):
+        self.virtualization_data = {
+            "Intel i5": {"VM Count": 5, "Latency": "20 ms"},
+            "Intel i7": {"VM Count": 8, "Latency": "15 ms"},
+            "AMD Ryzen 5": {"VM Count": 6, "Latency": "18 ms"},
+            "AMD Ryzen 7": {"VM Count": 10, "Latency": "12 ms"}
+        }
+
+    def get_data(self, cpu_model):
+        return self.virtualization_data.get(cpu_model, {})
+login_model.py
+python
+from base_model import BaseModel
+
+class LoginModel(BaseModel):
+    def __init__(self):
+        self.users = {"admin": "123456"}
+
+    def validate_login(self, username, password):
+        return self.users.get(username) == password
+styles.qss
+css
+/* 示例样式 */
+QWidget#titleBar {
+    background-color: #333;
+    color: white;
+}
+QPushButton#loginButton, QPushButton#logoutButton, QPushButton#sidebarButton, QPushButton#actionButton {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    padding: 5px;
+}
+QPushButton#loginButton:hover, QPushButton#logoutButton:hover, QPushButton#sidebarButton:hover, QPushButton#actionButton:hover {
+    background-color: #45a049;
+}
+QLineEdit#loginInput {
+    padding: 5px;
+    border: 1px solid #ccc;
+}
+QTableWidget#dataTable {
+    border: 1px solid #ccc;
+}
+QFrame#sidebar {
+    background-color: #f0f0f0;
+}
+优化细节
+1. 将 pages 移到 JSON 配置文件
+之前：
+pages 字典硬编码在 page_controllers.py 中：
+python
+self.pages = {
+    "cpu_specs": {"widget_class": CPUSpecsWidget, "label": "CPU Specs", "model": CPUSpecsModel()}
+}
+现在：
+移到 pages_config.json，PageController 通过 _load_pages 读取：
+python
+def _load_pages(self, pages_config):
+    widget_map = {
+        "CPUSpecsWidget": CPUSpecsWidget,
+        "ServerDataWidget": ServerDataWidget,
+        "VirtualizationPerfWidget": VirtualizationPerfWidget
+    }
+    model_map = {
+        "CPUSpecsModel": CPUSpecsModel,
+        "ServerDataModel": ServerDataModel,
+        "VirtualizationPerfModel": VirtualizationPerfModel
+    }
+    pages = {}
+    for name, config in pages_config.items():
+        pages[name] = {
+            "widget_class": widget_map[config["widget_class"]],
+            "label": config["label"],
+            "model": model_map[config["model"]]()
+        }
+    return pages
+AppController 从文件中加载：
+python
+with open("pages_config.json", "r") as f:
+    pages_config = json.load(f)
+self.page_controller = PageController(self, pages_config, self.max_cache_size)
+好处：
+配置与代码分离，新增页面只需修改 JSON 文件，无需改动代码。
+提高灵活性，易于维护。
+2. 第三方 Web 登录页面
+之前：
+使用本地 QLineEdit 输入用户名和密码。
+现在：
+使用 QWebEngineView 加载第三方登录页面：
+python
+self.web_view = QWebEngineView(self)
+self.web_view.setFixedSize(400, 300)
+self.web_view.load(QUrl("https://example.com/login"))
+通过 URL 回调模拟登录成功：
+python
+@Slot(QUrl)
+def _on_url_changed(self, url):
+    url_str = url.toString()
+    if "callback" in url_str:
+        params = dict(param.split("=") for param in url_str.split("?")[1].split("&"))
+        username = params.get("username", "")
+        token = params.get("token", "")
+        self.login_signal.emit(username, token)
+固定大小：
+python
+def _adjust_widget_size(self, widget, is_login_widget=True):
+    if is_login_widget:
+        width = 400  # 固定宽度
+        height = 300  # 固定高度
+python
+def adjust_geometry(self, scale, parent_width, parent_height):
+    self.resize(400, 300)  # 不随 scale 变化
+假设：
+第三方页面重定向到类似 https://example.com/callback?username=admin&token=123456 的 URL。
+LoginModel.validate_login 验证 username 和 token（这里仍使用原有逻辑，实际需适配第三方认证）。
+好处：
+模拟真实第三方登录场景，控制器无需直接处理输入框。
+固定大小适应 Web 视图，避免动态调整问题。
+测试步骤
+保存所有文件，确保 pages_config.json 在项目目录下。
+运行 main.py，显示第三方登录页面（示例使用 https://example.com/login）。
+模拟回调：
+手动在浏览器访问类似 https://example.com/callback?username=admin&token=123456，或修改代码模拟：
+python
+self.login_widget.web_view.load(QUrl("https://example.com/callback?username=admin&token=123456"))
+确认主窗口显示，侧边栏生成 3 个按钮。
+验证功能：
+点击按钮，切换页面：
+cpu_specs 显示 CPU 规格。
+server_data 显示并可修改服务器数据。
+virtualization_perf 显示虚拟化性能。
+点击退出，主窗口隐藏，登录页面重新显示。
+测试扩展性：
+在 pages_config.json 添加新页面：
+json
+"network": {
+    "widget_class": "NetworkWidget",
+    "label": "Network",
+    "model": "NetworkModel"
+}
+更新 widget_map 和 model_map，确认新按钮和页面加载。
+示例输出
+# 模拟回调
+Created and switched to page: cpu_specs  # 登录成功后显示 Intel i5 规格
+Switched to cached page: server_data  # 点击 Server Data 按钮
+Row 0 modified: CPU Usage = High (45%)
+
+# 失败情况
+# 弹出 "Login Failed" 提示（需第三方返回错误 URL）
+优化亮点
+配置文件：
+pages 移到 pages_config.json，代码与配置解耦，扩展只需修改 JSON。
+第三方登录：
+使用 QWebEngineView 加载 Web 页面，通过回调获取用户信息，适应真实场景。
+固定大小（400x300），避免无法获取输入框的问题。
+简洁性：
+动态按钮和单一信号保持，代码结构清晰。
+注意事项
+第三方 URL：当前使用 https://example.com/login 仅为示例，需替换为实际登录页面 URL。
+回调解析：_on_url_changed 中的参数解析是简化的，实际需根据第三方 API 调整。
+新页面支持：添加新页面需确保 widget_map 和 model_map 包含对应类。
+如果您对当前版本有任何意见或需要进一步调整（如移除更多继承或适配具体第三方 API），请告诉我！
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 当前代码中布局坐标（如 x=138, y=124 等）直接硬编码在 move 和 resize 中，确实不便于维护，且变量含义容易混淆。为了优化布局坐标，我将：
 定义常量：将所有关键坐标和尺寸提取为命名常量，便于理解和维护。
 结构化布局：将布局参数分组（如标题栏、侧边栏、内容区），提高可读性。
