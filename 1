@@ -1,3 +1,256 @@
+import sys
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                              QHBoxLayout, QPushButton, QLabel, QComboBox)
+from PySide6.QtCore import Qt, QSize, QRect, QPoint
+from PySide6.QtGui import QIcon, QPixmap, QScreen
+
+class CustomButton(QWidget):
+    def __init__(self, text, icon_path, scale_factor, parent=None):
+        super().__init__(parent)
+        self.scale_factor = scale_factor
+        
+        layout = QVBoxLayout(self)
+        layout.setSpacing(int(5 * scale_factor))
+        layout.setContentsMargins(int(10 * scale_factor), int(10 * scale_factor), 
+                                int(10 * scale_factor), int(10 * scale_factor))
+        
+        self.text_label = QLabel(text)
+        self.text_label.setAlignment(Qt.AlignCenter)
+        
+        self.icon_label = QLabel()
+        pixmap = QPixmap(icon_path)
+        icon_size = int(24 * scale_factor)
+        self.icon_label.setPixmap(pixmap.scaled(icon_size, icon_size, Qt.KeepAspectRatio))
+        self.icon_label.setAlignment(Qt.AlignCenter)
+        
+        layout.addWidget(self.text_label)
+        layout.addWidget(self.icon_label)
+        
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #3498DB;
+                color: white;
+                border-radius: 5px;
+            }
+            QWidget:hover {
+                background-color: #2980B9;
+            }
+            QLabel {
+                color: white;
+            }
+        """)
+        
+        self.clicked = lambda: None
+        self.mousePressEvent = self.on_click
+        
+    def on_click(self, event):
+        self.clicked()
+
+class CustomWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        # 基准分辨率
+        BASE_WIDTH = 1500
+        BASE_HEIGHT = 1200
+        
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        
+        screen = QApplication.primaryScreen()
+        screen_geometry = screen.availableGeometry()
+        screen_width = screen_geometry.width()
+        screen_height = screen_geometry.height()
+        
+        width_ratio = screen_width / BASE_WIDTH
+        height_ratio = screen_height / BASE_HEIGHT
+        self.scale_factor = min(width_ratio, height_ratio) * 0.8
+        
+        window_width = int(BASE_WIDTH * self.scale_factor)
+        window_height = int(BASE_HEIGHT * self.scale_factor)
+        
+        self.setGeometry(
+            int((screen_width - window_width) / 2),
+            int((screen_height - window_height) / 2),
+            window_width,
+            window_height
+        )
+        
+        self.setMinimumSize(int(BASE_WIDTH * self.scale_factor * 0.5), 
+                          int(BASE_HEIGHT * self.scale_factor * 0.5))
+
+        # 主布局
+        self.main_widget = QWidget()
+        self.setCentralWidget(self.main_widget)
+        self.main_layout = QHBoxLayout(self.main_widget)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+
+        # 左侧侧边栏
+        self.sidebar = QWidget()
+        sidebar_width = int(250 * self.scale_factor)
+        self.sidebar.setMinimumWidth(sidebar_width)
+        self.sidebar.setMaximumWidth(sidebar_width)
+        self.sidebar.setStyleSheet("background-color: #2C3E50;")
+        sidebar_layout = QVBoxLayout(self.sidebar)
+        
+        logo_label = QLabel()
+        logo_pixmap = QPixmap("logo.png")
+        logo_size = int(100 * self.scale_factor)
+        logo_label.setPixmap(logo_pixmap.scaled(logo_size, logo_size, Qt.KeepAspectRatio))
+        logo_label.setAlignment(Qt.AlignCenter)
+        
+        button1 = CustomButton("按钮1", "icon1.png", self.scale_factor)
+        button2 = CustomButton("按钮2", "icon2.png", self.scale_factor)
+        
+        button1.clicked = lambda: print("Button 1 clicked")
+        button2.clicked = lambda: print("Button 2 clicked")
+
+        sidebar_layout.addStretch(1)
+        sidebar_layout.addWidget(logo_label)
+        sidebar_layout.addSpacing(int(50 * self.scale_factor))
+        sidebar_layout.addWidget(button1)
+        sidebar_layout.addSpacing(int(20 * self.scale_factor))
+        sidebar_layout.addWidget(button2)
+        sidebar_layout.addStretch(1)
+
+        # 右侧主内容区
+        self.content_widget = QWidget()
+        self.content_widget.setStyleSheet("background-color: #ECF0F1;")
+        content_layout = QVBoxLayout(self.content_widget)
+
+        # 标题栏
+        self.title_bar = QWidget()
+        title_height = int(50 * self.scale_factor)
+        self.title_bar.setFixedHeight(title_height)
+        self.title_bar.setStyleSheet("background-color: #34495E;")
+        title_layout = QHBoxLayout(self.title_bar)
+        title_layout.setContentsMargins(int(10 * self.scale_factor), 0, 
+                                      int(10 * self.scale_factor), 0)
+        
+        # 用户信息区域
+        user_widget = QWidget()
+        user_layout = QHBoxLayout(user_widget)
+        user_layout.setSpacing(int(5 * self.scale_factor))
+        
+        # 用户头像
+        avatar_label = QLabel()
+        avatar_pixmap = QPixmap("avatar.png")
+        avatar_size = int(30 * self.scale_factor)
+        avatar_label.setPixmap(avatar_pixmap.scaled(avatar_size, avatar_size, Qt.KeepAspectRatio))
+        
+        # 用户名标签
+        username_label = QLabel("用户123")
+        username_label.setStyleSheet(f"""
+            QLabel {{
+                color: white;
+                font-size: {int(14 * self.scale_factor)}px;
+                padding: {int(5 * self.scale_factor)}px;
+            }}
+        """)
+        
+        # 下拉菜单只显示“退出登录”
+        username_combo = QComboBox()
+        username_combo.addItem("退出登录")
+        username_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: #3498DB;
+                color: white;
+                padding: {int(5 * self.scale_factor)}px;
+                border-radius: {int(3 * self.scale_factor)}px;
+                min-width: {int(100 * self.scale_factor)}px;
+            }}
+        """)
+        
+        user_layout.addWidget(avatar_label)
+        user_layout.addWidget(username_label)
+        user_layout.addWidget(username_combo)
+        
+        # 窗口控制按钮
+        self.minimize_btn = QPushButton("−")
+        self.maximize_btn = QPushButton("□")
+        self.close_btn = QPushButton("×")
+        
+        control_style = f"""
+            QPushButton {{
+                background-color: transparent;
+                color: white;
+                border: none;
+                font-size: {int(16 * self.scale_factor)}px;
+                min-width: {int(40 * self.scale_factor)}px;
+            }}
+            QPushButton:hover {{
+                background-color: #E74C3C;
+            }}
+        """
+        
+        for btn in (self.minimize_btn, self.maximize_btn, self.close_btn):
+            btn.setStyleSheet(control_style)
+        
+        self.minimize_btn.clicked.connect(self.showMinimized)
+        self.maximize_btn.clicked.connect(self.toggle_maximize)
+        self.close_btn.clicked.connect(self.close)
+        
+        title_layout.addStretch(1)
+        title_layout.addWidget(user_widget)
+        title_layout.addSpacing(int(10 * self.scale_factor))
+        title_layout.addWidget(self.minimize_btn)
+        title_layout.addWidget(self.maximize_btn)
+        title_layout.addWidget(self.close_btn)
+        
+        main_content = QWidget()
+        main_content.setStyleSheet("background-color: #ECF0F1;")
+        
+        content_layout.addWidget(self.title_bar)
+        content_layout.addWidget(main_content)
+        
+        self.main_layout.addWidget(self.sidebar)
+        self.main_layout.addWidget(self.content_widget)
+
+        # 用于窗口拖动的变量
+        self.dragging = False
+        self.drag_position = QPoint()
+
+    def toggle_maximize(self):
+        if self.isMaximized():
+            self.showNormal()
+            self.maximize_btn.setText("□")
+        else:
+            self.showMaximized()
+            self.maximize_btn.setText("❐")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        new_width = int(250 * self.scale_factor)
+        self.sidebar.setMinimumWidth(new_width)
+        self.sidebar.setMaximumWidth(new_width)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.title_bar.underMouse():
+            self.dragging = True
+            self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self.dragging and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPosition().toPoint() - self.drag_position)
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.dragging = False
+            event.accept()
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = CustomWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+
+
+
+
 
 import sys
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
