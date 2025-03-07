@@ -1,3 +1,231 @@
+
+
+import sys
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                              QHBoxLayout, QPushButton, QLabel, QComboBox)
+from PySide6.QtCore import Qt, QSize, QRect
+from PySide6.QtGui import QIcon, QPixmap, QScreen
+
+class CustomButton(QWidget):
+    """自定义按钮类：文字在上，图标在下"""
+    def __init__(self, text, icon_path, parent=None):
+        super().__init__(parent)
+        
+        # 创建垂直布局
+        layout = QVBoxLayout(self)
+        layout.setSpacing(5)
+        layout.setContentsMargins(10, 10, 10, 10)
+        
+        # 文字标签
+        self.text_label = QLabel(text)
+        self.text_label.setAlignment(Qt.AlignCenter)
+        
+        # 图标
+        self.icon_label = QLabel()
+        pixmap = QPixmap(icon_path)
+        self.icon_label.setPixmap(pixmap.scaled(24, 24, Qt.KeepAspectRatio))
+        self.icon_label.setAlignment(Qt.AlignCenter)
+        
+        # 添加到布局
+        layout.addWidget(self.text_label)
+        layout.addWidget(self.icon_label)
+        
+        # 设置样式
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #3498DB;
+                color: white;
+                border-radius: 5px;
+            }
+            QWidget:hover {
+                background-color: #2980B9;
+            }
+            QLabel {
+                color: white;
+            }
+        """)
+        
+        # 设置点击事件
+        self.clicked = lambda: None  # 占位符
+        self.mousePressEvent = self.on_click
+        
+    def on_click(self, event):
+        self.clicked()
+
+class CustomWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        # 去掉默认标题栏
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        
+        # 获取屏幕分辨率
+        screen = QApplication.primaryScreen()
+        screen_geometry = screen.availableGeometry()
+        screen_width = screen_geometry.width()
+        screen_height = screen_geometry.height()
+        
+        # 设置初始窗口大小为屏幕的80%
+        initial_width = int(screen_width * 0.8)
+        initial_height = int(screen_height * 0.8)
+        self.setGeometry(
+            int((screen_width - initial_width) / 2),
+            int((screen_height - initial_height) / 2),
+            initial_width,
+            initial_height
+        )
+        
+        # 设置最小窗口大小
+        self.setMinimumSize(int(screen_width * 0.4), int(screen_height * 0.4))
+
+        # 主布局
+        self.main_widget = QWidget()
+        self.setCentralWidget(self.main_widget)
+        self.main_layout = QHBoxLayout(self.main_widget)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+
+        # 左侧侧边栏
+        self.sidebar = QWidget()
+        self.sidebar.setMinimumWidth(200)
+        self.sidebar.setMaximumWidth(int(screen_width * 0.2))
+        self.sidebar.setStyleSheet("background-color: #2C3E50;")
+        sidebar_layout = QVBoxLayout(self.sidebar)
+        
+        # Logo
+        logo_label = QLabel()
+        logo_pixmap = QPixmap("logo.png")  # 请替换为你的logo路径
+        logo_size = min(int(screen_width * 0.08), 100)
+        logo_label.setPixmap(logo_pixmap.scaled(logo_size, logo_size, Qt.KeepAspectRatio))
+        logo_label.setAlignment(Qt.AlignCenter)
+        
+        # 自定义按钮（文字在上，图标在下）
+        button1 = CustomButton("按钮1", "icon1.png")  # 请替换为你的图标路径
+        button2 = CustomButton("按钮2", "icon2.png")  # 请替换为你的图标路径
+        
+        # 添加点击事件（示例）
+        button1.clicked = lambda: print("Button 1 clicked")
+        button2.clicked = lambda: print("Button 2 clicked")
+
+        # 添加到侧边栏布局
+        sidebar_layout.addStretch(1)
+        sidebar_layout.addWidget(logo_label)
+        sidebar_layout.addSpacing(int(screen_height * 0.04))
+        sidebar_layout.addWidget(button1)
+        sidebar_layout.addSpacing(int(screen_height * 0.02))
+        sidebar_layout.addWidget(button2)
+        sidebar_layout.addStretch(1)
+
+        # 右侧主内容区
+        self.content_widget = QWidget()
+        self.content_widget.setStyleSheet("background-color: #ECF0F1;")
+        content_layout = QVBoxLayout(self.content_widget)
+
+        # 标题栏
+        title_bar = QWidget()
+        title_bar.setMinimumHeight(40)
+        title_bar.setMaximumHeight(int(screen_height * 0.05))
+        title_bar.setStyleSheet("background-color: #34495E;")
+        title_layout = QHBoxLayout(title_bar)
+        
+        # 用户信息
+        user_widget = QWidget()
+        user_layout = QHBoxLayout(user_widget)
+        
+        # 用户头像
+        avatar_label = QLabel()
+        avatar_pixmap = QPixmap("avatar.png")  # 请替换为你的头像路径
+        avatar_size = int(screen_height * 0.03)
+        avatar_label.setPixmap(avatar_pixmap.scaled(avatar_size, avatar_size, Qt.KeepAspectRatio))
+        
+        # 用户名和下拉菜单
+        username_combo = QComboBox()
+        username_combo.addItems(["用户123", "退出登录"])
+        username_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #3498DB;
+                color: white;
+                padding: 5px;
+                border-radius: 3px;
+                min-width: 100px;
+            }
+        """)
+        
+        user_layout.addWidget(avatar_label)
+        user_layout.addWidget(username_combo)
+        
+        # 窗口控制按钮
+        minimize_btn = QPushButton("?")
+        maximize_btn = QPushButton("?")
+        close_btn = QPushButton("?")
+        
+        control_style = """
+            QPushButton {
+                background-color: transparent;
+                color: white;
+                border: none;
+                font-size: 16px;
+                min-width: 40px;
+            }
+            QPushButton:hover {
+                background-color: #E74C3C;
+            }
+        """
+        
+        for btn in (minimize_btn, maximize_btn, close_btn):
+            btn.setStyleSheet(control_style)
+        
+        # 连接按钮功能
+        minimize_btn.clicked.connect(self.showMinimized)
+        maximize_btn.clicked.connect(self.toggle_maximize)
+        close_btn.clicked.connect(self.close)
+        
+        # 添加到标题布局
+        title_layout.addStretch(1)
+        title_layout.addWidget(user_widget)
+        title_layout.addWidget(minimize_btn)
+        title_layout.addWidget(maximize_btn)
+        title_layout.addWidget(close_btn)
+        
+        # 主内容区域
+        main_content = QWidget()
+        main_content.setStyleSheet("background-color: #ECF0F1;")
+        
+        # 添加到主布局
+        content_layout.addWidget(title_bar)
+        content_layout.addWidget(main_content)
+        
+        # 添加侧边栏和内容区到主布局
+        self.main_layout.addWidget(self.sidebar)
+        self.main_layout.addWidget(self.content_widget)
+
+    def toggle_maximize(self):
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        current_width = self.width()
+        new_sidebar_width = max(200, min(int(current_width * 0.2), 300))
+        self.sidebar.setMaximumWidth(new_sidebar_width)
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = CustomWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+
+
+
+
+
+
+
+
 根据您的要求，我将进一步优化代码，将 pages 字典从 page_controllers.py 移到外部 JSON 配置文件，进一步解耦代码和配置。同时，调整登录逻辑，使其调用第三方 Web 页面，并通过回调显示相应字段来判断登录成功。由于第三方 Web 页面无法直接获取输入框大小及文字，我将固定登录页面大小，并模拟回调逻辑。
 以下是优化后的完整代码：
 文件结构
