@@ -1,4 +1,216 @@
 import sys
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+from PySide6.QtCore import Qt, QPoint, QRect
+
+class CustomWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        # 主容器
+        self.main_widget = QWidget()
+        self.setCentralWidget(self.main_widget)
+        self.layout = QVBoxLayout(self.main_widget)
+        self.layout.setContentsMargins(1, 1, 1, 1)
+        self.layout.setSpacing(0)
+
+        # 标题栏
+        self.title_bar = QWidget()
+        self.title_bar.setFixedHeight(30)
+        self.layout.addWidget(self.title_bar)
+        title_layout = QHBoxLayout(self.title_bar)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(0)
+
+        # 标题
+        self.title_label = QLabel("Custom Window")
+        self.title_label.setStyleSheet("color: white; padding-left: 5px;")
+        title_layout.addWidget(self.title_label)
+        title_layout.addStretch()
+
+        # 控制按钮
+        self.min_btn = QPushButton("?")
+        self.max_btn = QPushButton("?")
+        self.close_btn = QPushButton("?")
+
+        btn_style = """
+            QPushButton {
+                border: none;
+                background: transparent;
+                color: white;
+                min-width: 30px;
+                max-width: 30px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 20);
+            }
+        """
+        self.min_btn.setStyleSheet(btn_style)
+        self.max_btn.setStyleSheet(btn_style)
+        self.close_btn.setStyleSheet("""
+            QPushButton {
+                border: none;
+                background: transparent;
+                color: white;
+                min-width: 30px;
+                max-width: 30px;
+            }
+            QPushButton:hover {
+                background: #ff4444;
+            }
+        """)
+
+        self.min_btn.clicked.connect(self.showMinimized)
+        self.max_btn.clicked.connect(self.toggle_maximize)
+        self.close_btn.clicked.connect(self.close)
+
+        title_layout.addWidget(self.min_btn)
+        title_layout.addWidget(self.max_btn)
+        title_layout.addWidget(self.close_btn)
+
+        # 内容区域
+        self.content = QWidget()
+        self.content.setStyleSheet("""
+            background-color: #ffffff;
+            border-bottom-left-radius: 5px;
+            border-bottom-right-radius: 5px;
+        """)
+        self.layout.addWidget(self.content)
+
+        # 样式
+        self.main_widget.setStyleSheet("background-color: #aaaaaa; border-radius: 5px;")
+        self.title_bar.setStyleSheet("background-color: #2d2d2d;")
+
+        # 初始化参数
+        self.resize(800, 600)
+        self.old_pos = QPoint()
+        self.pressing = False
+        self.resizing = False
+        self.resize_direction = 0  # 使用位标志表示拉伸方向
+
+        # 定义拉伸方向常量
+        self.LEFT = 1
+        self.RIGHT = 2
+        self.TOP = 4
+        self.BOTTOM = 8
+
+    def toggle_maximize(self):
+        if self.isMaximized():
+            self.showNormal()
+            self.max_btn.setText("?")
+        else:
+            self.showMaximized()
+            self.max_btn.setText("?")
+
+    def get_resize_direction(self, pos):
+        """检测鼠标位置，返回拉伸方向"""
+        margin = 5
+        direction = 0
+        
+        if pos.x() < margin:
+            direction |= self.LEFT
+        elif pos.x() > self.width() - margin:
+            direction |= self.RIGHT
+            
+        if pos.y() < margin:
+            direction |= self.TOP
+        elif pos.y() > self.height() - margin:
+            direction |= self.BOTTOM
+            
+        return direction
+
+    def update_cursor(self, pos):
+        """根据位置更新鼠标光标"""
+        direction = self.get_resize_direction(pos)
+        
+        if direction == (self.LEFT | self.TOP) or direction == (self.RIGHT | self.BOTTOM):
+            self.setCursor(Qt.SizeFDiagCursor)
+        elif direction == (self.RIGHT | self.TOP) or direction == (self.LEFT | self.BOTTOM):
+            self.setCursor(Qt.SizeBDiagCursor)
+        elif direction & (self.LEFT | self.RIGHT):
+            self.setCursor(Qt.SizeHorCursor)
+        elif direction & (self.TOP | self.BOTTOM):
+            self.setCursor(Qt.SizeVerCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return
+
+        pos = event.position().toPoint()
+        
+        # 标题栏拖动
+        if pos.y() < self.title_bar.height() and not self.resizing:
+            self.pressing = True
+            self.old_pos = event.globalPosition().toPoint()
+            return
+
+        # 边缘拉伸
+        self.resize_direction = self.get_resize_direction(pos)
+        if self.resize_direction and not self.isMaximized():
+            self.resizing = True
+            self.old_pos = event.globalPosition().toPoint()
+
+    def mouseMoveEvent(self, event):
+        pos = event.position().toPoint()
+        global_pos = event.globalPosition().toPoint()
+
+        # 更新光标
+        if not self.resizing and not self.pressing:
+            self.update_cursor(pos)
+            return
+
+        if self.pressing and not self.isMaximized():
+            delta = global_pos - self.old_pos
+            self.move(self.pos() + delta)
+            self.old_pos = global_pos
+            return
+
+        if self.resizing and not self.isMaximized():
+            delta = global_pos - self.old_pos
+            geo = QRect(self.geometry())
+
+            if self.resize_direction & self.LEFT:
+                geo.setLeft(geo.left() + delta.x())
+            if self.resize_direction & self.RIGHT:
+                geo.setRight(geo.right() + delta.x())
+            if self.resize_direction & self.TOP:
+                geo.setTop(geo.top() + delta.y())
+            if self.resize_direction & self.BOTTOM:
+                geo.setBottom(geo.bottom() + delta.y())
+
+            self.setGeometry(geo)
+            self.old_pos = global_pos
+
+    def mouseReleaseEvent(self, event):
+        self.pressing = False
+        self.resizing = False
+        self.resize_direction = 0
+        self.update_cursor(event.position().toPoint())
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton and event.position().toPoint().y() < self.title_bar.height():
+            self.toggle_maximize()
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = CustomWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+
+
+
+
+
+
+
+
+
+import sys
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QComboBox, QPushButton, 
                                QLabel, QFrame, QStackedWidget, QMessageBox)
 from PySide6.QtCore import Qt, Signal, Slot, QUrl, QRect
