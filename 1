@@ -1,3 +1,434 @@
+import sys
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QComboBox, QPushButton, 
+                               QLabel, QFrame, QStackedWidget, QMessageBox)
+from PySide6.QtCore import Qt, Signal, Slot, QUrl, QRect
+from PySide6.QtGui import QFont, QCursor
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from collections import OrderedDict
+
+# 设计常量
+DESIGN_WIDTH, DESIGN_HEIGHT = 1634, 1054
+TITLE_BAR_HEIGHT = 40
+SIDEBAR_WIDTH = 200
+SIDEBAR_BUTTON_X = 10
+SIDEBAR_BUTTON_Y_START, SIDEBAR_BUTTON_SPACING = 100, 50
+RESIZE_BORDER = 5  # 拉伸边界宽度
+
+# 布局管理器
+class LayoutManager:
+    def __init__(self, design_size=(DESIGN_WIDTH, DESIGN_HEIGHT), title_bar_height=TITLE_BAR_HEIGHT, sidebar_width=SIDEBAR_WIDTH):
+        self.design_width, self.design_height = design_size
+        self.title_bar_height = title_bar_height
+        self.sidebar_width = sidebar_width
+
+    def calculate_scale(self, widget):
+        if widget.isMaximized():
+            screen = widget.screen()
+            screen_size = screen.availableSize()
+            return min(screen_size.width() / self.design_width, screen_size.height() / self.design_height)
+        else:
+            return min(widget.width() / self.design_width, widget.height() / self.design_height)
+
+    def adjust_geometry(self, widget, layout_config, is_login=False):
+        scale = self.calculate_scale(widget)
+        if is_login:
+            width, height = 400, 300
+        else:
+            width = widget.width() if widget.isMaximized() else int(self.design_width * scale)
+            height = widget.height() if widget.isMaximized() else int(self.design_height * scale)
+        widget.resize(width, height)
+
+        for name, config in layout_config.items():
+            obj = getattr(widget, name, None)
+            if obj:
+                x = int(config["x"] * scale) if "x" in config else 0
+                y = int(config["y"] * scale) if "y" in config else 0
+                w = int(config["w"] * scale) if "w" in config else obj.width()
+                h = int(config["h"] * scale) if "h" in config else obj.height()
+                if "move" in config and config["move"]:
+                    obj.move(x, y)
+                if "resize" in config and config["resize"]:
+                    obj.resize(w, h)
+
+    def center_on_screen(self, widget):
+        if not widget.isMaximized():
+            screen = widget.screen()
+            screen_size = screen.availableSize()
+            x = (screen_size.width() - widget.width()) // 2
+            y = (screen_size.height() - widget.height()) // 2
+            widget.move(x, y)
+
+# 基础控制器
+class BaseSystemController:
+    def __init__(self, max_cache_size=3):
+        self.max_cache_size = max_cache_size
+        self.main_window = None
+        self.page_cache = OrderedDict()
+        self.layout_manager = LayoutManager()
+
+    def _adjust_widget_size(self, widget, is_login_widget=True):
+        widget.adjust_geometry()
+
+    def _switch_page(self, name):
+        if name not in self.pages:
+            return
+        if name in self.page_cache:
+            self.page_cache.move_to_end(name)
+            print(f"Switched to cached page: {name}")
+        else:
+            if len(self.page_cache) >= self.max_cache_size:
+                self._remove_oldest_page()
+            widget_class, model = self.pages[name]["widget_class"], self.pages[name]["model"]
+            widget = widget_class(model)
+            self.page_cache[name] = widget
+            self.main_window.content_stack.addWidget(widget)
+            print(f"Created and switched to page: {name}")
+        self.main_window.content_stack.setCurrentWidget(self.page_cache[name])
+
+    def _remove_oldest_page(self):
+        name, widget = self.page_cache.popitem(last=False)
+        self.main_window.content_stack.removeWidget(widget)
+        widget.deleteLater()
+        print(f"Removed oldest page: {name}")
+
+# 登录窗口
+class LoginWidget(QWidget):
+    login_signal = Signal(str, str)
+
+    def __init__(self):
+        super().__init__()
+        self.layout_manager = LayoutManager()
+        self.web_view = QWebEngineView(self)
+        self.web_view.setFixedSize(400, 300)
+        self.web_view.load(QUrl("https://example.com/callback?username=admin&token=123456"))
+        self.web_view.urlChanged.connect(self._on_url_changed)
+        self.layout_config = {
+            "web_view": {"x": 0, "y": 0, "move": True}
+        }
+        print("LoginWidget initialized")
+
+    def adjust_geometry(self):
+        self.layout_manager.adjust_geometry(self, self.layout_config, is_login=True)
+        self.layout_manager.center_on_screen(self)
+
+    @Slot(QUrl)
+    def _on_url_changed(self, url):
+        url_str = url.toString()
+        print(f"URL changed to: {url_str}")
+        if "callback" in url_str:
+            params = dict(param.split("=") for param in url_str.split("?")[1].split("&"))
+            username = params.get("username", "")
+            token = params.get("token", "")
+            print(f"Emitting login_signal: username={username}, token={token}")
+            self.login_signal.emit(username, token)
+
+# 主窗口
+class MainWindow(QMainWindow):
+    logout_signal = Signal()
+
+    def __init__(self, username, pages_config):
+        super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setWindowTitle(f"Welcome, {username}")
+        self.username = username
+        self.is_maximized = False
+        self.layout_manager = LayoutManager()
+        self.central_widget = QWidget(self)
+        self.setCentralWidget(self.central_widget)
+        self.setMinimumSize(800, 600)  # 设置最小尺寸
+
+        # 标题栏
+        self.title_bar = QWidget(self.central_widget)
+        self.title_bar.setObjectName("titleBar")
+        self.logo_label = QLabel("Logo", self.title_bar)
+        self.logo_label.setObjectName("titleLabel")
+        self.user_label = QLabel(f"User: {self.username}", self.title_bar)
+        self.user_label.setObjectName("titleLabel")
+        self.user_menu = QComboBox(self.title_bar)
+        self.user_menu.addItems(["Profile", "Logout"])
+        self.user_menu.setObjectName("userMenu")
+        self.user_menu.currentTextChanged.connect(self._on_menu_selected)
+        self.minimize_btn = QPushButton("?", self.title_bar)
+        self.minimize_btn.setObjectName("titleButton")
+        self.minimize_btn.clicked.connect(self.showMinimized)
+        self.maximize_btn = QPushButton("□", self.title_bar)
+        self.maximize_btn.setObjectName("titleButton")
+        self.maximize_btn.clicked.connect(self._toggle_maximize)
+        self.close_btn = QPushButton("×", self.title_bar)
+        self.close_btn.setObjectName("titleButton")
+        self.close_btn.clicked.connect(self.close)
+
+        # 侧边栏
+        self.sidebar = QFrame(self.central_widget)
+        self.sidebar.setObjectName("sidebar")
+        self.page_buttons = {}
+        for i, (name, config) in enumerate(pages_config.items()):
+            button = QPushButton(config["label"], self.sidebar)
+            button.setObjectName("sidebarButton")
+            self.page_buttons[name] = button
+        self.clear_cache_btn = QPushButton("Clear Cache", self.sidebar)
+        self.clear_cache_btn.setObjectName("sidebarButton")
+
+        # 内容区域
+        self.content_stack = QStackedWidget(self.central_widget)
+
+        # 布局配置
+        self.layout_config = {
+            "title_bar": {"x": 0, "y": 0, "w": DESIGN_WIDTH, "h": TITLE_BAR_HEIGHT, "move": True, "resize": True},
+            "logo_label": {"x": 10, "y": 10, "move": True},
+            "user_label": {"x": DESIGN_WIDTH - 234, "y": 10, "move": True},
+            "user_menu": {"x": DESIGN_WIDTH - 180, "y": 5, "w": 80, "h": 30, "move": True, "resize": True},
+            "minimize_btn": {"x": DESIGN_WIDTH - 100, "y": 5, "w": 30, "h": 30, "move": True, "resize": True},
+            "maximize_btn": {"x": DESIGN_WIDTH - 65, "y": 5, "w": 30, "h": 30, "move": True, "resize": True},
+            "close_btn": {"x": DESIGN_WIDTH - 30, "y": 5, "w": 30, "h": 30, "move": True, "resize": True},
+            "sidebar": {"x": 0, "y": TITLE_BAR_HEIGHT, "w": SIDEBAR_WIDTH, "h": DESIGN_HEIGHT - TITLE_BAR_HEIGHT, "move": True, "resize": True},
+            "clear_cache_btn": {"x": SIDEBAR_BUTTON_X, "y": SIDEBAR_BUTTON_Y_START + len(self.page_buttons) * SIDEBAR_BUTTON_SPACING, "move": True},
+            "content_stack": {"x": SIDEBAR_WIDTH, "y": TITLE_BAR_HEIGHT, "w": DESIGN_WIDTH - SIDEBAR_WIDTH, "h": DESIGN_HEIGHT - TITLE_BAR_HEIGHT, "move": True, "resize": True}
+        }
+        for i, (name, button) in enumerate(self.page_buttons.items()):
+            self.layout_config[f"page_button_{name}"] = {
+                "x": SIDEBAR_BUTTON_X,
+                "y": SIDEBAR_BUTTON_Y_START + i * SIDEBAR_BUTTON_SPACING,
+                "move": True
+            }
+            setattr(self, f"page_button_{name}", button)
+
+    def adjust_geometry(self):
+        self.layout_manager.adjust_geometry(self, self.layout_config)
+        if not self.isMaximized():
+            self.layout_manager.center_on_screen(self)
+        for name, button in self.page_buttons.items():
+            setattr(self, f"page_button_{name}", button)
+
+    @Slot(str)
+    def _on_menu_selected(self, option):
+        if option == "Logout":
+            self.logout_signal.emit()
+        elif option == "Profile":
+            print("Profile selected")
+
+    @Slot()
+    def _toggle_maximize(self):
+        if self.is_maximized:
+            self.showNormal()
+            self.maximize_btn.setText("□")
+            self.is_maximized = False
+        else:
+            self.showMaximized()
+            self.maximize_btn.setText("?")
+            self.is_maximized = True
+        self.adjust_geometry()  # 最大化/还原时重新调整布局
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.drag_pos = event.globalPos() - self.pos()
+            self.resize_direction = self._get_resize_direction(event.pos())
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton:
+            if self.resize_direction:
+                self._resize_window(event.globalPos())
+            elif self.title_bar.underMouse():
+                self.move(event.globalPos() - self.drag_pos)
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self.resize_direction = None
+        event.accept()
+
+    def _get_resize_direction(self, pos):
+        rect = self.rect()
+        if pos.x() < RESIZE_BORDER and pos.y() < RESIZE_BORDER:
+            return "top_left"
+        elif pos.x() > rect.width() - RESIZE_BORDER and pos.y() < RESIZE_BORDER:
+            return "top_right"
+        elif pos.x() < RESIZE_BORDER and pos.y() > rect.height() - RESIZE_BORDER:
+            return "bottom_left"
+        elif pos.x() > rect.width() - RESIZE_BORDER and pos.y() > rect.height() - RESIZE_BORDER:
+            return "bottom_right"
+        elif pos.x() < RESIZE_BORDER:
+            return "left"
+        elif pos.x() > rect.width() - RESIZE_BORDER:
+            return "right"
+        elif pos.y() < RESIZE_BORDER:
+            return "top"
+        elif pos.y() > rect.height() - RESIZE_BORDER:
+            return "bottom"
+        return None
+
+    def _resize_window(self, global_pos):
+        rect = self.geometry()
+        if "left" in self.resize_direction:
+            rect.setLeft(global_pos.x())
+        if "right" in self.resize_direction:
+            rect.setRight(global_pos.x())
+        if "top" in self.resize_direction:
+            rect.setTop(global_pos.y())
+        if "bottom" in self.resize_direction:
+            rect.setBottom(global_pos.y())
+        self.setGeometry(rect)
+        self.adjust_geometry()  # 实时调整布局
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        if not (event.buttons() & Qt.LeftButton):
+            direction = self._get_resize_direction(event.pos())
+            if direction:
+                if "left" in direction and "top" in direction:
+                    self.setCursor(Qt.SizeFDiagCursor)
+                elif "right" in direction and "top" in direction:
+                    self.setCursor(Qt.SizeBDiagCursor)
+                elif "left" in direction and "bottom" in direction:
+                    self.setCursor(Qt.SizeBDiagCursor)
+                elif "right" in direction and "bottom" in direction:
+                    self.setCursor(Qt.SizeFDiagCursor)
+                elif "left" in direction or "right" in direction:
+                    self.setCursor(Qt.SizeHorCursor)
+                elif "top" in direction or "bottom" in direction:
+                    self.setCursor(Qt.SizeVerCursor)
+            else:
+                self.setCursor(Qt.ArrowCursor)
+
+# 页面控制器
+class PageController(BaseSystemController):
+    def __init__(self, parent_controller, pages_config, max_cache_size=3):
+        super().__init__(max_cache_size)
+        self.parent_controller = parent_controller
+        self.pages = pages_config
+
+    def register_pages(self, main_window):
+        self.main_window = main_window
+        for name, config in self.pages.items():
+            button = main_window.page_buttons[name]
+            button.clicked.connect(lambda n=name: self._switch_page(n))
+
+# 登录控制器
+class LoginController(BaseSystemController):
+    def __init__(self, login_widget_class, max_cache_size=3):
+        super().__init__(max_cache_size)
+        self.login_widget = login_widget_class()
+        self.login_model = LoginModel()
+
+    def validate_login(self, username, password):
+        is_valid = self.login_model.validate_login(username, password)
+        print(f"Validating login: username={username}, password={password}, result={is_valid}")
+        return is_valid
+
+    def start(self):
+        self._adjust_widget_size(self.login_widget)
+        self.login_widget.show()
+
+    @Slot()
+    def show_login(self):
+        self.login_widget.show()
+
+# 应用控制器
+class AppController(BaseSystemController):
+    def __init__(self, max_cache_size=3):
+        super().__init__(max_cache_size)
+        self.pages = {
+            "cpu_specs": {"widget_class": QWidget, "label": "CPU Specs", "model": None},
+            "server_data": {"widget_class": QWidget, "label": "Server Data", "model": None},
+            "virtualization_perf": {"widget_class": QWidget, "label": "Virtualization Perf", "model": None}
+        }
+        self.login_controller = LoginController(LoginWidget, self.max_cache_size)
+        self.page_controller = PageController(self, self.pages, self.max_cache_size)
+        self.login_controller.login_widget.login_signal.connect(self._on_login)
+        print("AppController initialized, connected to login_signal")
+
+    @Slot(str, str)
+    def _on_login(self, username, password):
+        print(f"Received login signal: username={username}, password={password}")
+        if self.login_controller.validate_login(username, password):
+            self.main_window = MainWindow(username, self.pages)
+            self._adjust_widget_size(self.main_window, is_login_widget=False)
+            self.main_window.logout_signal.connect(self._on_logout)
+            self.main_window.clear_cache_btn.clicked.connect(self._clear_all_pages)
+            self.page_controller.register_pages(self.main_window)
+            self.main_window.show()
+            self.login_controller.login_widget.hide()
+            print("Login successful, main window shown")
+        else:
+            QMessageBox.warning(self.login_controller.login_widget, "Login Failed", "Invalid username or password")
+            print("Login failed")
+
+    @Slot()
+    def _on_logout(self):
+        self.main_window.hide()
+        self.login_controller.show_login()
+        print("Logged out")
+
+    @Slot()
+    def _clear_all_pages(self):
+        while self.page_cache:
+            self._remove_oldest_page()
+        QMessageBox.information(self.main_window, "Cache Cleared", "All cached pages have been destroyed.")
+
+    def start(self):
+        self.login_controller.start()
+
+# 登录模型
+class LoginModel:
+    def __init__(self):
+        self.users = {"admin": "123456"}
+
+    def validate_login(self, username, password):
+        return self.users.get(username) == password
+
+# 主函数
+def load_stylesheet(app):
+    stylesheet = """
+    QWidget#titleBar {
+        background-color: #333;
+        color: white;
+    }
+    QPushButton#sidebarButton, QPushButton#titleButton {
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        padding: 5px;
+    }
+    QPushButton#sidebarButton:hover, QPushButton#titleButton:hover {
+        background-color: #45a049;
+    }
+    QComboBox#userMenu {
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        padding: 5px;
+    }
+    QComboBox#userMenu:hover {
+        background-color: #45a049;
+    }
+    QFrame#sidebar {
+        background-color: #f0f0f0;
+    }
+    """
+    app.setStyleSheet(stylesheet)
+
+if __name__ == "__main__":
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+    app = QApplication(sys.argv)
+    font = QFont("Arial", 10)
+    app.setFont(font)
+    load_stylesheet(app)
+    app_controller = AppController(max_cache_size=3)
+    app_controller.start()
+    sys.exit(app.exec())
+
+
+
+
+
+
+
+
+
+
+
+
 您提到的问题是关于如何更好地模块化 Widget，以便在等比例缩放时更易于维护。当前代码中，MainWindow 和其他 Widget 的缩放逻辑（adjust_geometry 和 center_on_screen）直接硬编码在每个类中，导致维护困难，尤其是在需要调整布局或支持不同分辨率时。我将分析现状并提出优化方案，提升模块化和可维护性。
 当前问题分析
 现状
