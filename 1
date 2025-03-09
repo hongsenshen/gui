@@ -1,4 +1,385 @@
 import sys
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QTableWidget, QTableWidgetItem, QGroupBox,
+    QComboBox, QStackedWidget, QStyledItemDelegate,
+    QHeaderView, QLabel, QStyleOptionViewItem, QStyle
+)
+from PySide6.QtCore import Qt, QUrl, QSize, QEvent
+from PySide6.QtGui import QIcon, QColor, QPalette, QDesktopServices, QCursor
+
+
+class LinkDelegate(QStyledItemDelegate):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def paint(self, painter, option, index):
+        if index.row() == 4:
+            # 设置链接样式
+            option.font.setUnderline(True)
+            option.palette.setColor(QPalette.Text, QColor("#1890ff"))
+            option.displayAlignment = Qt.AlignCenter
+
+            # 添加鼠标悬停效果，与侧边栏一致
+            if option.state & QStyle.State_MouseOver:
+                painter.fillRect(option.rect, QColor("#e3f2fd"))
+                QApplication.setOverrideCursor(Qt.PointingHandCursor)
+            else:
+                QApplication.restoreOverrideCursor()
+
+            super().paint(painter, option, index)
+        else:
+            super().paint(painter, option, index)
+            QApplication.restoreOverrideCursor()
+
+    def editorEvent(self, event, model, option, index):
+        if event.type() == QEvent.MouseButtonRelease and index.row() == 4:
+            main_window = self.parent().window()
+            if main_window:
+                main_window.open_link(index)
+            return True
+        return super().editorEvent(event, model, option, index)
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("系统信息监控平台")
+        self.setGeometry(100, 100, 1280, 720)
+
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        main_layout = QHBoxLayout(main_widget)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(15)
+
+        self.nav_bar = self.create_nav_bar()
+        main_layout.addWidget(self.nav_bar, stretch=1)
+
+        self.form_stack = QStackedWidget()
+        main_layout.addWidget(self.form_stack, stretch=2)
+
+        self.data_table = self.create_data_table()
+        main_layout.addWidget(self.data_table, stretch=5)
+
+        self.init_cpu_page()
+        self.init_perf_page()
+        self.switch_page(0)
+
+    def create_nav_bar(self):
+        nav_group = QGroupBox("功能导航")
+        nav_layout = QVBoxLayout(nav_group)
+        nav_layout.setContentsMargins(5, 20, 5, 20)
+
+        nav_style = """
+            QPushButton {
+                height: 50px; 
+                font-size: 14px;
+                text-align: left;
+                padding: 12px 20px;
+                border-radius: 5px;
+                border: none;
+                cursor: pointer;
+            }
+            QPushButton:hover {
+                background-color: #e3f2fd;
+            }
+            QPushButton:pressed {
+                background-color: #bbdefb;
+            }
+        """
+        nav_group.setStyleSheet(nav_style)
+
+        self.btn_cpu = QPushButton(" CPU规格")
+        self.btn_perf = QPushButton(" 性能数据")
+        self.btn_cpu.setIcon(QIcon("cpu_icon.png"))
+        self.btn_perf.setIcon(QIcon("chart_icon.png"))
+        self.btn_cpu.setIconSize(QSize(24, 24))
+        self.btn_perf.setIconSize(QSize(24, 24))
+        self.btn_cpu.setCursor(Qt.PointingHandCursor)
+        self.btn_perf.setCursor(Qt.PointingHandCursor)
+
+        nav_layout.addStretch(1)
+        nav_layout.addWidget(self.btn_cpu)
+        nav_layout.addWidget(self.btn_perf)
+        nav_layout.addStretch(1)
+
+        self.btn_cpu.clicked.connect(lambda: self.switch_page(0))
+        self.btn_perf.clicked.connect(lambda: self.switch_page(1))
+
+        return nav_group
+
+    def init_cpu_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+
+        self.cpu_fields = {
+            "manufacturer": QComboBox(),
+            "model": QComboBox(),
+            "cores": QComboBox(),
+            "base_clock": QComboBox(),
+            "l3_cache": QComboBox(),
+            "architecture": QComboBox()
+        }
+
+        self.cpu_fields["manufacturer"].addItems(["自动检测", "Intel", "AMD", "Apple Silicon"])
+        self.cpu_fields["manufacturer"].currentTextChanged.connect(self.update_models)
+
+        self.cpu_fields["cores"].addItems(["自动检测", "4", "6", "8", "12"])
+        self.cpu_fields["base_clock"].addItems(["自动检测", "2.4GHz", "3.0GHz", "3.6GHz"])
+        self.cpu_fields["l3_cache"].addItems(["自动检测", "8MB", "12MB", "16MB"])
+        self.cpu_fields["architecture"].addItems(["自动检测", "x86", "ARM"])
+
+        for field in self.cpu_fields.values():
+            field.currentIndexChanged.connect(self.update_cpu_table)
+
+        for label, field in [
+            ("制造商:", self.cpu_fields["manufacturer"]),
+            ("型号:", self.cpu_fields["model"]),
+            ("核心数:", self.cpu_fields["cores"]),
+            ("基频:", self.cpu_fields["base_clock"]),
+            ("三级缓存:", self.cpu_fields["l3_cache"]),
+            ("架构:", self.cpu_fields["architecture"])
+        ]:
+            group = QWidget()
+            group_layout = QVBoxLayout(group)
+            group_layout.addWidget(QLabel(label))
+            group_layout.addWidget(field)
+            layout.addWidget(group)
+
+        layout.addStretch()
+        self.form_stack.addWidget(page)
+
+    def init_perf_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+
+        self.perf_fields = {
+            "time_range": QComboBox(),
+            "metric_type": QComboBox(),
+            "aggregation": QComboBox()
+        }
+
+        self.perf_fields["time_range"].addItems(["最近15分钟", "最近1小时", "最近24小时"])
+        self.perf_fields["metric_type"].addItems(["CPU使用率", "内存使用", "磁盘IO"])
+        self.perf_fields["aggregation"].addItems(["平均值", "最大值", "最小值"])
+
+        for label, field in [
+            ("时间范围:", self.perf_fields["time_range"]),
+            ("指标类型:", self.perf_fields["metric_type"]),
+            ("聚合方式:", self.perf_fields["aggregation"])
+        ]:
+            group = QWidget()
+            group_layout = QVBoxLayout(group)
+            group_layout.addWidget(QLabel(label))
+            group_layout.addWidget(field)
+            layout.addWidget(group)
+
+        btn_layout = QHBoxLayout()
+        btn_query = QPushButton("查询数据")
+        btn_clear = QPushButton("重置条件")
+        btn_query.clicked.connect(self.update_perf_table)
+        btn_clear.clicked.connect(self.clear_perf_filters)
+
+        btn_layout.addWidget(btn_clear)
+        btn_layout.addWidget(btn_query)
+
+        layout.addLayout(btn_layout)
+        layout.addStretch()
+        self.form_stack.addWidget(page)
+
+    def create_data_table(self):
+        group = QGroupBox("数据展示")
+        layout = QVBoxLayout(group)
+
+        self.table = QTableWidget()
+        self.table.setColumnCount(7)
+        self.table.setRowCount(6)  # CPU页面有6个参数
+        headers = ["参数"] + [f"CPU {i + 1}" for i in range(6)]
+        self.table.setHorizontalHeaderLabels(headers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
+        self.table.verticalHeader().setDefaultSectionSize(40)
+
+        self.table.setMinimumWidth(600)
+        for i in range(7):
+            self.table.setColumnWidth(i, 120)
+
+        self.table.setStyleSheet("""
+            QTableWidget {
+                font-size: 12px;
+                gridline-color: #e0e0e0;
+            }
+            QHeaderView::section {
+                background-color: #f5f5f5;
+                padding: 8px;
+                border: 1px solid #dcdcdc;
+            }
+            QTableCornerButton::section {
+                background-color: #f5f5f5;
+                border: 1px solid #dcdcdc;
+            }
+        """)
+
+        self.add_table_filters()
+        self.table.setItemDelegate(LinkDelegate(self.table))
+
+        layout.addWidget(self.table)
+        return group
+
+    def add_table_filters(self):
+        # CPU页面有6行，性能页面有5行，这里只设置必要的行
+        pass
+
+    def update_models(self):
+        manufacturer = self.cpu_fields["manufacturer"].currentText()
+        models = []
+        if manufacturer == "Intel":
+            models = ["i5-12400", "i7-12700K", "i9-12900KS"]
+        elif manufacturer == "AMD":
+            models = ["Ryzen 5 5600X", "Ryzen 7 5800X3D", "Ryzen 9 5950X"]
+        elif manufacturer == "Apple Silicon":
+            models = ["M1 Pro", "M1 Max", "M1 Ultra"]
+
+        self.cpu_fields["model"].clear()
+        self.cpu_fields["model"].addItems(["自动检测"] + models)
+
+    def update_cpu_table(self):
+        # 设置表格行数为6，与CPU参数一致
+        self.table.setRowCount(6)
+        self.table.setVerticalHeaderLabels(["制造商", "型号", "核心数", "基频", "三级缓存", "架构"])
+
+        # 获取表单选择的值
+        manu = self.cpu_fields["manufacturer"].currentText()
+        model = self.cpu_fields["model"].currentText()
+        cores = self.cpu_fields["cores"].currentText()
+        clock = self.cpu_fields["base_clock"].currentText()
+        cache = self.cpu_fields["l3_cache"].currentText()
+        arch = self.cpu_fields["architecture"].currentText()
+
+        # 为每个CPU填充数据
+        for col in range(1, 7):
+            manu_value = manu if manu != "自动检测" else f"Intel-{col}"
+            model_value = model if model != "自动检测" else f"i5-1240{col}"
+            cores_value = cores if cores != "自动检测" else str(4 + col)
+            clock_value = clock if clock != "自动检测" else f"{2.4 + col * 0.2:.1f}GHz"
+            cache_value = cache if cache != "自动检测" else f"{8 + col * 2}MB"
+            arch_value = arch if arch != "自动检测" else "x86"
+
+            self.table.setItem(0, col, QTableWidgetItem(manu_value))
+            self.table.setItem(1, col, QTableWidgetItem(model_value))
+            self.table.setItem(2, col, QTableWidgetItem(cores_value))
+            self.table.setItem(3, col, QTableWidgetItem(clock_value))
+            self.table.setItem(4, col, QTableWidgetItem(cache_value))
+            self.table.setItem(5, col, QTableWidgetItem(arch_value))
+
+            # 添加链接到最后一列（但这里每一列都有自己的数据，所以不需要额外行）
+        for col in range(1, 7):
+            link_item = QTableWidgetItem("查看详情")
+            link_item.setData(Qt.UserRole, f"https://example.com/cpu/{col}")
+            link_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(5, col, link_item)  # 将链接放在“架构”行
+
+    def update_perf_table(self):
+        # 设置表格行数为5，包含链接行
+        self.table.setRowCount(5)
+        self.table.setVerticalHeaderLabels(["时间范围", "指标类型", "聚合方式", "使用率", "详情链接"])
+
+        # 获取表单选择的值
+        time_range = self.perf_fields["time_range"].currentText()
+        metric = self.perf_fields["metric_type"].currentText()
+        agg = self.perf_fields["aggregation"].currentText()
+
+        for col in range(1, 7):
+            # 计算使用率基于聚合方式和指标类型
+            base_usage = 50 + col * 5
+            if metric == "CPU使用率":
+                adjustment = 10
+            elif metric == "内存使用":
+                adjustment = 5
+            else:  # 磁盘IO
+                adjustment = 15
+
+            if agg == "最大值":
+                usage = base_usage + adjustment
+            elif agg == "最小值":
+                usage = base_usage - adjustment
+            else:  # 平均值
+                usage = base_usage
+
+            self.table.setItem(0, col, QTableWidgetItem(time_range))
+            self.table.setItem(1, col, QTableWidgetItem(metric))
+            self.table.setItem(2, col, QTableWidgetItem(agg))
+            self.table.setItem(3, col, QTableWidgetItem(f"{usage}%"))
+
+            link_item = QTableWidgetItem("查看详情")
+            link_item.setData(Qt.UserRole, f"https://example.com/perf/{col}")
+            link_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(4, col, link_item)
+
+    def filter_table(self, row, filter_text):
+        for col in range(1, 7):
+            item = self.table.item(row, col)
+            hide = filter_text != "全部" and filter_text != (item.text() if item else "")
+            self.table.setColumnHidden(col, hide)
+
+    def switch_page(self, index):
+        self.form_stack.setCurrentIndex(index)
+        if index == 0:
+            self.update_cpu_table()
+            self.btn_cpu.setStyleSheet("background-color: #ddeeff;")
+            self.btn_perf.setStyleSheet("")
+        else:
+            self.update_perf_table()
+            self.btn_perf.setStyleSheet("background-color: #ddeeff;")
+            self.btn_cpu.setStyleSheet("")
+
+    def clear_perf_filters(self):
+        for combo in self.perf_fields.values():
+            combo.setCurrentIndex(0)
+        self.update_perf_table()
+
+    def open_link(self, index):
+        if index.row() == (5 if self.form_stack.currentIndex() == 0 else 4):
+            url = index.data(Qt.UserRole)
+            QDesktopServices.openUrl(QUrl(url))
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+
+    app.setStyleSheet("""
+        QGroupBox {
+            border: 1px solid #dcdcdc;
+            border-radius: 6px;
+            margin-top: 12px;
+            padding-top: 15px;
+            font-size: 13px;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 12px;
+            padding: 0 5px;
+            color: #666;
+        }
+        QComboBox {
+            padding: 3px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            min-width: 100px;
+        }
+    """)
+
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+
+
+
+
+import sys
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
 from PySide6.QtCore import Qt, QPoint, QRect
 
