@@ -1,3 +1,111 @@
+在 PySide6 中，`QMouseEvent.pos()` 方法已被弃用（Deprecation），需要改用 `position().toPoint()`。以下是 **修复弃用警告** 并保持功能完整的改进方案：
+
+---
+
+### 最终优化代码（修复警告 + 完整功能）
+```python
+import sys
+from PySide6.QtWidgets import QApplication, QTableWidget, QTableWidgetItem, QMainWindow, QVBoxLayout, QWidget, QLabel
+from PySide6.QtCore import Qt, QPoint
+
+class HoverTable(QTableWidget):
+    def __init__(self, rows, cols):
+        super().__init__(rows, cols)
+        self.setMouseTracking(True)  # 启用鼠标跟踪
+
+    def mouseMoveEvent(self, event):
+        # 使用 position().toPoint() 替代已弃用的 pos()
+        mouse_pos = event.position().toPoint()  # 🚀 修复警告的关键修改
+        index = self.indexAt(mouse_pos)
+        if index.isValid():
+            self.setCursor(Qt.PointingHandCursor)
+        else:
+            self.unsetCursor()
+        super().mouseMoveEvent(event)
+
+class MainWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.initUI()
+        self.resize(600, 400)
+
+    def initUI(self):
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        # 普通表格
+        layout.addWidget(QLabel("普通表格"))
+        normal_table = QTableWidget(3, 2)
+        self.fill_table(normal_table)
+        layout.addWidget(normal_table)
+
+        # 带手型光标的表格
+        layout.addWidget(QLabel("悬停手型光标表格"))
+        styled_table = HoverTable(3, 2)
+        self.fill_table(styled_table)
+        styled_table.setStyleSheet("QTableWidget::item { color: blue; }")
+        layout.addWidget(styled_table)
+
+    def fill_table(self, table):
+        table.setHorizontalHeaderLabels(["列1", "列2"])
+        for row in range(3):
+            for col in range(2):
+                item = QTableWidgetItem(f"行{row+1}, 列{col+1}")
+                table.setItem(row, col, item)
+        table.itemClicked.connect(lambda item: print(f"点击: {item.text()}"))
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.setWindowTitle("修复弃用警告演示")
+    window.show()
+    sys.exit(app.exec())
+```
+
+---
+
+### 关键修改说明
+
+1. **弃用方法替换**：
+   ```python
+   # 旧代码（已弃用）
+   index = self.indexAt(event.pos())  
+
+   # 新代码（推荐写法）
+   mouse_pos = event.position().toPoint()  
+   index = self.indexAt(mouse_pos)
+   ```
+   - `position()` 返回浮点坐标（QPointF），`toPoint()` 将其转换为整数坐标（QPoint）
+   - 保持与 `QTableWidget.indexAt(QPoint)` 的参数兼容性
+
+2. **兼容性保障**：
+   - PySide6 6.4+ 版本必须使用此写法
+   - 旧版 PySide6 (6.0-6.3) 仍兼容 `pos()`，但建议统一升级写法
+
+---
+
+### 效果验证
+
+1. **运行代码**，观察控制台：
+   - 不再出现 `DeprecationWarning` 警告
+2. **功能测试**：
+   - 普通表格：无手型光标，文字黑色
+   - 特效表格：悬停显示手型光标，文字蓝色
+   - 点击任意单元格正常打印日志
+
+---
+
+### 技术背景
+
+| 方法                | 返回值类型   | 说明                          |
+|---------------------|-------------|------------------------------|
+| `event.pos()`        | `QPoint`     | 已弃用，返回整数坐标          |
+| `event.position()`   | `QPointF`    | 推荐方法，返回浮点坐标        |
+| `event.pos().toPointF()` | `QPointF` | 旧代码的等价转换方式           |
+
+通过使用新API，可以更好地支持高DPI屏幕的坐标精度，同时保持向后兼容性。
+
+
 import sys
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
