@@ -1,3 +1,122 @@
+import sys
+from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QComboBox, QVBoxLayout, QWidget
+from PySide6.QtGui import QFont, QColor, QStandardItemModel, QStandardItem
+from PySide6.QtCore import Qt, QEvent
+
+
+class CustomComboBox(QComboBox):
+    def __init__(self):
+        super().__init__()
+        self.setMouseTracking(True)  # 启用鼠标跟踪
+        self.setFixedWidth(150)  # 固定宽度
+
+        # 使用自定义模型
+        self.model = QStandardItemModel()
+        self.setModel(self.model)
+
+        # 为下拉列表视图启用鼠标跟踪并安装事件过滤器
+        self.view().setMouseTracking(True)
+        self.view().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        # 处理下拉列表视图的鼠标移动事件
+        if obj == self.view() and event.type() == QEvent.MouseMove:
+            index = self.view().indexAt(event.pos())
+            if index.isValid():
+                full_text = self.itemData(index.row(), Qt.UserRole)
+                if full_text:
+                    # 为视图设置工具提示
+                    self.view().setToolTip(full_text)
+                    QApplication.processEvents()  # 强制刷新工具提示
+            return True
+        elif obj == self.view() and event.type() == QEvent.ToolTip:
+            # 处理工具提示事件
+            index = self.view().indexAt(event.pos())
+            if index.isValid():
+                full_text = self.itemData(index.row(), Qt.UserRole)
+                if full_text:
+                    self.view().setToolTip(full_text)
+            return True
+        return super().eventFilter(obj, event)
+
+    def addCustomItem(self, full_text):
+        item = QStandardItem(full_text)
+        item.setData(full_text, Qt.UserRole)  # 存储完整文本
+        item.setToolTip(full_text)  # 为每个选项设置工具提示
+        self.model.appendRow(item)
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("PySide6 示例")
+        self.resize(600, 400)
+
+        # 创建中心控件和布局
+        central_widget = QWidget()
+        layout = QVBoxLayout(central_widget)
+        self.setCentralWidget(central_widget)
+
+        # 创建表格
+        self.table = QTableWidget(3, 3)
+        self.table.setFont(QFont("Arial", 12))
+        # self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
+        self.table.setMouseTracking(True)
+
+        # 设置单元格
+        self.set_custom_cell(0, 0, "特殊单元格", font_size=14, color="red")
+        self.set_cell_with_tooltip(0, 1, "这是一个很长的文本，鼠标悬停应该显示完整内容")
+
+        # 创建自定义下拉框
+        self.combo = CustomComboBox()
+
+        # 添加选项
+        # self.combo.addCustomItem("短选项", "短选项完整内容")
+        self.combo.addCustomItem("这是一个超长的下拉框选项，鼠标悬停应该显示完整内容")
+
+        # 初始化工具提示并连接信号
+        self.combo.currentIndexChanged.connect(self.update_combo_tooltip)
+        self.update_combo_tooltip(0)
+
+        # 添加到布局
+        layout.addWidget(self.table)
+        layout.addWidget(self.combo)
+
+    def set_custom_cell(self, row, col, text, font_size=12, color="black"):
+        item = QTableWidgetItem(text)
+        item.setFont(QFont("Arial", font_size))
+        item.setForeground(QColor(color))
+        item.setTextAlignment(Qt.AlignCenter)
+        self.table.setItem(row, col, item)
+
+    def set_cell_with_tooltip(self, row, col, text):
+        item = QTableWidgetItem(text)
+        item.setToolTip(text)
+        if len(text) > 20:
+            item.setText(text[:17] + "...")
+        else:
+            item.setText(text)
+        self.table.setItem(row, col, item)
+
+    def update_combo_tooltip(self, index):
+        full_text = self.combo.itemData(index, Qt.UserRole)
+        if full_text:
+            self.combo.setToolTip(full_text)
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setStyleSheet("QToolTip { font-size: 12px; background-color: yellow; color: black; }")  # 调整工具提示样式
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+
+
+
+
 在 PySide6 中，`QMouseEvent.pos()` 方法已被弃用（Deprecation），需要改用 `position().toPoint()`。以下是 **修复弃用警告** 并保持功能完整的改进方案：
 
 ---
