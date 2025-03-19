@@ -1,3 +1,205 @@
+
+import sys
+import time
+from PySide6.QtWidgets import QApplication, QMainWindow, QComboBox, QVBoxLayout, QWidget, QLabel, QHBoxLayout, QTableWidget
+from PySide6.QtCore import QThreadPool, QRunnable, QObject, Signal, Slot
+from PySide6.QtGui import QFocusEvent
+
+# 信号类
+class Signals(QObject):
+    data_fetched = Signal(dict)  # 初始数据加载完成
+
+# 数据加载任务
+class DataTask(QRunnable):
+    def __init__(self, signals):
+        super().__init__()
+        self.signals = signals
+
+    def run(self):
+        data = self.fetch_initial_data()
+        self.signals.data_fetched.emit(data)
+
+    def fetch_initial_data(self):
+        time.sleep(2)  # 模拟延迟
+        # 返回初始值示例，实际应为空或默认值
+        return {
+            "cpu": ["CPU1", "CPU2", "CPU3"],
+            "memory": ["8GB", "16GB"],
+            "storage": ["1TB", "2TB"]
+        }
+
+# 自定义下拉框组件
+class ComboBoxComponent(QComboBox):
+    value_changed = Signal(str, tuple)  # 值改变信号
+
+    def __init__(self, parent=None, index=(-1,), category=None, fetch_options=None, selected_value=None):
+        super().__init__(parent)
+        self.index = index  # 元组，左侧为 (i,)，表格为 (row, col)
+        self.category = category  # 种类：cpu/memory/storage
+        self.fetch_options = fetch_options  # 查询函数
+        self.selected_value = selected_value
+        self.data_source = []  # 当前选项
+        self.setEnabled(False)
+        self.currentTextChanged.connect(self.on_text_changed)
+
+    def focusInEvent(self, event: QFocusEvent):
+        if not self.data_source:
+            self.addItem("数据正在加载中...")
+        super().focusInEvent(event)
+
+    def on_text_changed(self, text):
+        if text and text != "数据正在加载中...":
+            self.selected_value = text
+            self.value_changed.emit(text, self.index)
+
+    def update_options(self, dependencies=None):
+        if self.fetch_options:
+            self.data_source = self.fetch_options(self.category, dependencies)
+        self.blockSignals(True)
+        self.clear()
+        self.addItems(self.data_source)
+        if self.selected_value in self.data_source:
+            self.setCurrentText(self.selected_value)
+        elif self.data_source:
+            self.selected_value = self.data_source[0]  # 默认选第一个
+        self.setEnabled(True)
+        self.blockSignals(False)
+
+# 主窗口
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("级联下拉框示例")
+        self.resize(800, 600)
+
+        # 主布局
+        main_widget = QWidget()
+        main_layout = QHBoxLayout()
+
+        # 左侧下拉框
+        self.categories = ["cpu", "memory", "storage"]
+        left_widget = QWidget()
+        left_layout = QVBoxLayout()
+        self.left_combos = []
+        self.left_selected = [None] * 3
+        for i, category in enumerate(self.categories):
+            label = QLabel(f"选择 {category.capitalize()}")
+            combo = ComboBoxComponent(index=(i,), category=category, fetch_options=self.fetch_options)
+            combo.value_changed.connect(self.on_left_combo_changed)
+            left_layout.addWidget(label)
+            left_layout.addWidget(combo)
+            self.left_combos.append(combo)
+        left_layout.addStretch()
+        left_widget.setLayout(left_layout)
+        main_layout.addWidget(left_widget)
+
+        # 右侧表格
+        self.table = QTableWidget(5, 3)
+        self.table.setHorizontalHeaderLabels(["CPU", "Memory", "Storage"])
+        main_layout.addWidget(self.table, stretch=2)
+
+        main_widget.setLayout(main_layout)
+        self.setCentralWidget(main_widget)
+
+        # 数据和线程
+        self.table_data = {}
+        self.signals = Signals()
+        self.pool = QThreadPool.globalInstance()
+        self.signals.data_fetched.connect(self.init_data)
+        self.pool.start(DataTask(self.signals))
+
+    @Slot(dict)
+    def init_data(self, initial_data):
+        self.initial_data = initial_data
+        # 初始化左侧
+        for i, combo in enumerate(self.left_combos):
+            dependencies = {self.categories[j]: self.left_selected[j] for j in range(3) if j != i}
+            combo.update_options(dependencies)
+            if self.left_selected[i]:
+                combo.setCurrentText(self.left_selected[i])
+        # 初始化表格
+        self.init_table()
+
+    def init_table(self):
+        for row in range(self.table.rowCount()):
+            row_data = self.fetch_row_data(row)
+            self.table_data[row] = row_data
+            for col in range(self.table.columnCount()):
+                combo = ComboBoxComponent(
+                    index=(row, col),
+                    category=self.categories[col],
+                    fetch_options=self.fetch_options,
+                    selected_value=row_data[col]
+                )
+                combo.value_changed.connect(self.on_table_combo_changed)
+                self.table.setCellWidget(row, col, combo)
+            self.update_table_row(row)
+
+    def fetch_options(self, category, dependencies):
+        # 模拟接口查询，基于依赖值返回选项
+        # dependencies 是字典，例如 {"cpu": "CPU1", "storage": "1TB"}
+        base_options = {
+            "cpu": ["CPU1", "CPU2", "CPU3", "CPU4"],
+            "memory": ["8GB", "16GB", "32GB"],
+            "storage": ["1TB", "2TB", "512GB"]
+        }
+        options = base_options.get(category, [])
+        # 示例级联逻辑：根据依赖值过滤
+        if category == "memory" and dependencies.get("cpu") == "CPU1":
+            options = ["8GB", "16GB"]  # CPU1 只支持部分内存
+        elif category == "storage" and dependencies.get("memory") == "32GB":
+            options = ["2TB", "512GB"]  # 32GB 内存只支持部分硬盘
+        return options
+
+    def fetch_row_data(self, row):
+        # 模拟接口返回每行数据，需与当前选中值和种类匹配
+        return [
+            self.fetch_options("cpu", {"memory": self.table_data.get(row, [None]*3)[1], "storage": self.table_data.get(row, [None]*3)[2]})[row % 3],
+            self.fetch_options("memory", {"cpu": self.table_data.get(row, [None]*3)[0], "storage": self.table_data.get(row, [None]*3)[2]})[row % 2],
+            self.fetch_options("storage", {"cpu": self.table_data.get(row, [None]*3)[0], "memory": self.table_data.get(row, [None]*3)[1]})[row % 3]
+        ]
+
+    def on_left_combo_changed(self, text, index):
+        i = index[0]
+        self.left_selected[i] = text
+        # 更新其他左侧下拉框
+        for j, combo in enumerate(self.left_combos):
+            if j != i:
+                dependencies = {self.categories[k]: self.left_selected[k] for k in range(3) if k != j}
+                combo.update_options(dependencies)
+        self.update_table()
+
+    def on_table_combo_changed(self, text, index):
+        row, col = index
+        self.table_data[row][col] = text
+        # 更新该行其他下拉框
+        new_row_data = self.fetch_row_data(row)  # 模拟接口调用
+        self.table_data[row] = new_row_data
+        self.update_table_row(row)
+
+    def update_table(self):
+        for row in range(self.table.rowCount()):
+            self.update_table_row(row)
+
+    def update_table_row(self, row):
+        for col in range(self.table.columnCount()):
+            combo = self.table.cellWidget(row, col)
+            dependencies = {self.categories[k]: self.table_data[row][k] for k in range(3) if k != col}
+            combo.update_options(dependencies)
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+
+
+
+
+
+
 import sys
 from PySide6.QtWidgets import QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QComboBox, QVBoxLayout, QWidget
 from PySide6.QtGui import QFont, QColor, QStandardItemModel, QStandardItem
