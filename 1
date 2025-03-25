@@ -11,6 +11,159 @@ from PySide6.QtCore import QObject, Slot
 from PySide6.QtNetwork import QHostAddress
 
 # 第三方 Web URL（替换为实际的登录页面 URL）
+THIRD_PARTY_URL = "https://example.com/login"  # 示例 URL，替换为实际地址
+
+# 假设 qwebchannel.js 已放入项目目录，读取其内容
+try:
+    with open("qwebchannel.js", "r", encoding="utf-8") as f:
+        QWEBCHANNEL_JS = f.read()
+except FileNotFoundError:
+    print("Error: qwebchannel.js not found in project directory. Please provide it.")
+    sys.exit(1)
+
+# 注入的客户端脚本
+CLIENT_SCRIPT = """
+<script type="text/javascript">
+    window.onload = function() {
+        var socket = new WebSocket("ws://localhost:12345");
+        socket.onopen = function() {
+            console.log("WebSocket connected");
+            new QWebChannel(socket, function(channel) {
+                console.log("QWebChannel initialized");
+                var backend = channel.objects.backend;
+                window.external = {
+                    intoProgram: function(message) {
+                        console.log("Calling intoProgram with:", message);
+                        backend.intoProgram(message, function(result) {
+                            console.log("Received from PySide6:", result);
+                        });
+                    }
+                };
+                // 模拟登录后回调（替换为实际逻辑）
+                setTimeout(() => {
+                    window.external.intoProgram("Token: abc123xyz");
+                }, 5000);
+            });
+        };
+        socket.onerror = function(error) {
+            console.error("WebSocket error:", error);
+        };
+        socket.onclose = function() {
+            console.log("WebSocket closed");
+        };
+    };
+</script>
+"""
+
+class Backend(QObject):
+    @Slot(str, result=str)
+    def intoProgram(self, message):
+        print(f"Received callback from Web: {message}")
+        if "token" in message.lower():
+            print(f"Detected token: {message}")
+        return f"Python processed: {message}"
+
+class WebSocketServer(QObject):
+    def __init__(self):
+        super().__init__()
+        self.server = QWebSocketServer("MyServer", QWebSocketServer.NonSecureMode, self)
+        self.server.newConnection.connect(self.on_new_connection)
+        self.clients = []
+        self.backend = Backend()
+        self.channel = QWebChannel(self)
+        self.channel.registerObject("backend", self.backend)
+
+        if self.server.listen(QHostAddress.Any, 12345):
+            print("WebSocket server listening on port 12345")
+        else:
+            print("Failed to start server")
+
+    def on_new_connection(self):
+        client = self.server.nextPendingConnection()
+        client.setParent(self)
+        self.channel.connectTo(client)
+        client.disconnected.connect(lambda: self.clients.remove(client))
+        self.clients.append(client)
+        print("New client connected")
+
+# HTTP 代理服务器处理类
+class ProxyHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        try:
+            # 设置 User-Agent，避免被某些网站拒绝
+            req = urllib.request.Request(THIRD_PARTY_URL, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req) as response:
+                html_content = response.read().decode('utf-8')
+                # 在 </head> 前注入 QWebChannel.js，在 </body> 前注入客户端脚本
+                modified_html = html_content
+                if "</head>" in modified_html.lower():
+                    modified_html = modified_html.replace("</head>", f"<script>{QWEBCHANNEL_JS}</script></head>", 1)
+                else:
+                    modified_html += f"<script>{QWEBCHANNEL_JS}</script>"
+                if "</body>" in modified_html.lower():
+                    modified_html = modified_html.replace("</body>", CLIENT_SCRIPT + "</body>", 1)
+                else:
+                    modified_html += CLIENT_SCRIPT
+
+                self.send_response(200)
+                self.send_header("Content-type", "text/html")
+                self.end_headers()
+                self.wfile.write(modified_html.encode('utf-8'))
+        except urllib.error.URLError as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(f"Error loading {THIRD_PARTY_URL}: {str(e)}".encode('utf-8'))
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(f"Unexpected error: {str(e)}".encode('utf-8'))
+
+def start_http_server():
+    PORT = 8000
+    with socketserver.TCPServer(("", PORT), ProxyHandler) as httpd:
+        print(f"HTTP proxy server started at http://localhost:{PORT}")
+        httpd.serve_forever()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    
+    # 启动 WebSocket 服务器
+    ws_server = WebSocketServer()
+    
+    # 在单独线程中启动 HTTP 代理服务器
+    http_thread = threading.Thread(target=start_http_server, daemon=True)
+    http_thread.start()
+    
+    # 自动打开浏览器访问代理地址
+    proxy_url = "http://localhost:8000"
+    webbrowser.open(proxy_url)
+    print(f"Opened proxy URL: {proxy_url}")
+    print(f"Proxying third-party URL: {THIRD_PARTY_URL}")
+    print("User can now log in. Token will be captured automatically.")
+    
+    sys.exit(app.exec())
+
+
+
+
+
+
+
+
+
+import sys
+import threading
+import webbrowser
+import http.server
+import socketserver
+import urllib.request
+from PySide6.QtWidgets import QApplication
+from PySide6.QtWebSockets import QWebSocketServer, QWebSocket
+from PySide6.QtWebChannel import QWebChannel
+from PySide6.QtCore import QObject, Slot
+from PySide6.QtNetwork import QHostAddress
+
+# 第三方 Web URL（替换为实际的登录页面 URL）
 THIRD_PARTY_URL = "https://thirdparty.com/login"  # 示例 URL，替换为实际地址
 
 # QWebChannel.js 内容（简化版，实际使用时需替换为完整文件）
