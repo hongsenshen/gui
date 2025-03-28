@@ -22,6 +22,232 @@ class CustomTitleBar(QWidget):
         layout.addWidget(self.title)
         layout.addStretch()
         
+        # 按钮（使用简单字符避免乱码）
+        self.min_button = QPushButton("-")
+        self.max_button = QPushButton("□")
+        self.close_button = QPushButton("×")
+        
+        for btn in (self.min_button, self.max_button, self.close_button):
+            btn.setFixedSize(46, 32)
+            btn.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    background: transparent;
+                    font-size: 16px;
+                }
+                QPushButton:hover {
+                    background: rgba(0, 0, 0, 10%);
+                }
+                QPushButton:pressed {
+                    background: rgba(0, 0, 0, 20%);
+                }
+            """)
+            
+        self.close_button.setStyleSheet("""
+            QPushButton {
+                border: none;
+                background: transparent;
+                font-size: 16px;
+            }
+            QPushButton:hover {
+                background: rgb(232, 17, 35);
+                color: white;
+            }
+            QPushButton:pressed {
+                background: rgb(190, 0, 0);
+                color: white;
+            }
+        """)
+        
+        self.min_button.clicked.connect(self.parent.showMinimized)
+        self.max_button.clicked.connect(self.toggle_maximize)
+        self.close_button.clicked.connect(self.parent.close)
+        
+        layout.addWidget(self.min_button)
+        layout.addWidget(self.max_button)
+        layout.addWidget(self.close_button)
+        
+    def toggle_maximize(self):
+        if self.parent.isMaximized():
+            self.parent.showNormal()
+            self.max_button.setText("□")
+        else:
+            self.parent.showMaximized()
+            self.max_button.setText("?")
+            
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.pressed = True
+            self.start = event.globalPosition().toPoint()
+            
+    def mouseMoveEvent(self, event):
+        if self.pressed and not self.parent.isMaximized():
+            delta = event.globalPosition().toPoint() - self.start
+            self.parent.move(self.parent.x() + delta.x(), self.parent.y() + delta.y())
+            self.start = event.globalPosition().toPoint()
+            
+    def mouseReleaseEvent(self, event):
+        self.pressed = False
+        
+    def mouseDoubleClickEvent(self, event):
+        self.toggle_maximize()
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        # 主容器
+        self.container = QWidget()
+        self.setCentralWidget(self.container)
+        layout = QVBoxLayout(self.container)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(0)
+        
+        # 标题栏
+        self.title_bar = CustomTitleBar(self)
+        layout.addWidget(self.title_bar)
+        
+        # 内容区域
+        content = QWidget()
+        content.setStyleSheet("background: white;")
+        layout.addWidget(content)
+        
+        # 窗口样式
+        self.container.setStyleSheet("""
+            QWidget {
+                background: rgb(240, 240, 240);
+                border: 1px solid rgb(120, 120, 120);
+            }
+        """)
+        
+        self.resize(800, 600)
+        self.old_pos = None
+        self.resize_edge = None
+        
+    def get_resize_edge(self, pos):
+        margin = 5
+        rect = self.rect()
+        
+        left = pos.x() <= margin
+        right = pos.x() >= rect.width() - margin
+        top = pos.y() <= margin
+        bottom = pos.y() >= rect.height() - margin
+        
+        if left and top:
+            return "top-left"
+        elif right and top:
+            return "top-right"
+        elif left and bottom:
+            return "bottom-left"
+        elif right and bottom:
+            return "bottom-right"
+        elif left:
+            return "left"
+        elif right:
+            return "right"
+        elif top:
+            return "top"
+        elif bottom:
+            return "bottom"
+        return None
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and not self.isMaximized():
+            self.old_pos = event.globalPosition().toPoint()
+            self.resize_edge = self.get_resize_edge(event.position().toPoint())
+            
+    def mouseMoveEvent(self, event):
+        if self.isMaximized():
+            return
+            
+        local_pos = event.position().toPoint()
+        edge = self.get_resize_edge(local_pos)
+        
+        # 更新鼠标样式
+        if edge == "top-left" or edge == "bottom-right":
+            self.setCursor(Qt.SizeFDiagCursor)
+        elif edge == "top-right" or edge == "bottom-left":
+            self.setCursor(Qt.SizeBDiagCursor)
+        elif edge == "left" or edge == "right":
+            self.setCursor(Qt.SizeHorCursor)
+        elif edge == "top" or edge == "bottom":
+            self.setCursor(Qt.SizeVerCursor)
+        else:
+            self.unsetCursor()
+            
+        # 处理拉伸
+        if self.old_pos and self.resize_edge and event.buttons() & Qt.LeftButton:
+            pos = event.globalPosition().toPoint()
+            delta = pos - self.old_pos
+            geo = self.geometry()
+            min_width, min_height = 200, 200
+            
+            if "left" in self.resize_edge:
+                new_width = max(min_width, geo.width() - delta.x())
+                geo.setX(geo.right() - new_width)
+            elif "right" in self.resize_edge:
+                new_width = max(min_width, geo.width() + delta.x())
+                geo.setWidth(new_width)
+                
+            if "top" in self.resize_edge:
+                new_height = max(min_height, geo.height() - delta.y())
+                geo.setY(geo.bottom() - new_height)
+            elif "bottom" in self.resize_edge:
+                new_height = max(min_height, geo.height() + delta.y())
+                geo.setHeight(new_height)
+                
+            self.setGeometry(geo)
+            self.old_pos = pos
+            
+    def mouseReleaseEvent(self, event):
+        self.old_pos = None
+        self.resize_edge = None
+        self.unsetCursor()
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+
+
+
+
+
+
+
+
+
+
+
+import sys
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+from PySide6.QtCore import Qt, QPoint
+from PySide6.QtGui import QCursor
+
+class CustomTitleBar(QWidget):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.setFixedHeight(32)
+        self.start = None
+        self.pressed = False
+        
+        # 布局
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # 标题
+        self.title = QLabel("Custom Window")
+        self.title.setStyleSheet("padding: 5px;")
+        layout.addWidget(self.title)
+        layout.addStretch()
+        
         # 按钮
         self.min_button = QPushButton("?")
         self.max_button = QPushButton("?")
