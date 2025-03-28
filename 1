@@ -1,3 +1,233 @@
+import sys
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+from PySide6.QtCore import Qt, QRect, QSize
+from PySide6.QtGui import QIcon, QCursor
+
+class CustomTitleBar(QWidget):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.setFixedHeight(32)
+        self.start = None
+        self.pressed = False
+        
+        # 布局
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # 窗口图标（可选）
+        self.icon_label = QLabel()
+        self.icon_label.setFixedWidth(32)
+        layout.addWidget(self.icon_label)
+        
+        # 标题
+        self.title = QLabel("Custom Window")
+        self.title.setStyleSheet("padding: 5px;")
+        layout.addWidget(self.title)
+        layout.addStretch()
+        
+        # 按钮
+        self.min_button = QPushButton("🗕")
+        self.max_button = QPushButton("🗖")
+        self.close_button = QPushButton("🗙")
+        
+        for btn in (self.min_button, self.max_button, self.close_button):
+            btn.setFixedSize(46, 32)
+            btn.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    background: transparent;
+                }
+                QPushButton:hover {
+                    background: rgba(0, 0, 0, 10%);
+                }
+                QPushButton:pressed {
+                    background: rgba(0, 0, 0, 20%);
+                }
+            """)
+            
+        self.close_button.setStyleSheet("""
+            QPushButton {
+                border: none;
+                background: transparent;
+            }
+            QPushButton:hover {
+                background: rgb(232, 17, 35);
+                color: white;
+            }
+            QPushButton:pressed {
+                background: rgb(190, 0, 0);
+                color: white;
+            }
+        """)
+        
+        self.min_button.clicked.connect(self.parent.showMinimized)
+        self.max_button.clicked.connect(self.toggle_maximize)
+        self.close_button.clicked.connect(self.parent.close)
+        
+        layout.addWidget(self.min_button)
+        layout.addWidget(self.max_button)
+        layout.addWidget(self.close_button)
+        
+    def toggle_maximize(self):
+        if self.parent.isMaximized():
+            self.parent.showNormal()
+            self.max_button.setText("🗖")
+        else:
+            self.parent.showMaximized()
+            self.max_button.setText("🗗")
+            
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.pressed = True
+            self.start = event.globalPosition().toPoint()
+            
+    def mouseMoveEvent(self, event):
+        if self.pressed:
+            delta = event.globalPosition().toPoint() - self.start
+            self.parent.move(self.parent.x() + delta.x(), self.parent.y() + delta.y())
+            self.start = event.globalPosition().toPoint()
+            
+    def mouseReleaseEvent(self, event):
+        self.pressed = False
+        
+    def mouseDoubleClickEvent(self, event):
+        self.toggle_maximize()
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        # 主容器
+        self.container = QWidget()
+        self.setCentralWidget(self.container)
+        layout = QVBoxLayout(self.container)
+        layout.setContentsMargins(1, 1, 1, 1)
+        layout.setSpacing(0)
+        
+        # 标题栏
+        self.title_bar = CustomTitleBar(self)
+        layout.addWidget(self.title_bar)
+        
+        # 内容区域
+        content = QWidget()
+        content.setStyleSheet("background: white;")
+        layout.addWidget(content)
+        
+        # 窗口样式
+        self.container.setStyleSheet("""
+            QWidget {
+                background: rgb(240, 240, 240);
+                border: 1px solid rgb(120, 120, 120);
+            }
+        """)
+        
+        self.resize(800, 600)
+        self.old_pos = None
+        self.resize_direction = None
+        
+    def mousePressEvent(self, event):
+        self.old_pos = event.globalPosition().toPoint()
+        self.resize_direction = self.get_resize_direction(event.position().toPoint())
+        
+    def mouseMoveEvent(self, event):
+        if self.isMaximized():
+            return
+            
+        pos = event.globalPosition().toPoint()
+        if not self.old_pos:
+            return
+            
+        delta = pos - self.old_pos
+        
+        if self.resize_direction:
+            self.handle_resize(delta)
+        elif event.buttons() & Qt.LeftButton and event.position().toPoint().y() < 32:
+            # 已经被标题栏处理
+            return
+            
+        self.old_pos = pos
+        
+        # 更新鼠标样式
+        direction = self.get_resize_direction(event.position().toPoint())
+        if direction == "top-left" or direction == "bottom-right":
+            self.setCursor(Qt.SizeFDiagCursor)
+        elif direction == "top-right" or direction == "bottom-left":
+            self.setCursor(Qt.SizeBDiagCursor)
+        elif direction == "left" or direction == "right":
+            self.setCursor(Qt.SizeHorCursor)
+        elif direction == "top" or direction == "bottom":
+            self.setCursor(Qt.SizeVerCursor)
+        else:
+            self.unsetCursor()
+            
+    def mouseReleaseEvent(self, event):
+        self.old_pos = None
+        self.resize_direction = None
+        
+    def get_resize_direction(self, pos):
+        margin = 5
+        rect = self.rect()
+        
+        left = pos.x() < margin
+        right = pos.x() > rect.width() - margin
+        top = pos.y() < margin
+        bottom = pos.y() > rect.height() - margin
+        
+        if left and top:
+            return "top-left"
+        elif right and top:
+            return "top-right"
+        elif left and bottom:
+            return "bottom-left"
+        elif right and bottom:
+            return "bottom-right"
+        elif left:
+            return "left"
+        elif right:
+            return "right"
+        elif top:
+            return "top"
+        elif bottom:
+            return "bottom"
+        return None
+        
+    def handle_resize(self, delta):
+        geo = self.geometry()
+        min_size = self.minimumSize()
+        
+        if "left" in self.resize_direction:
+            new_width = max(min_size.width(), geo.width() - delta.x())
+            geo.setLeft(geo.right() - new_width)
+        elif "right" in self.resize_direction:
+            new_width = max(min_size.width(), geo.width() + delta.x())
+            geo.setRight(geo.left() + new_width)
+            
+        if "top" in self.resize_direction:
+            new_height = max(min_size.height(), geo.height() - delta.y())
+            geo.setTop(geo.bottom() - new_height)
+        elif "bottom" in self.resize_direction:
+            new_height = max(min_size.height(), geo.height() + delta.y())
+            geo.setBottom(geo.top() + new_height)
+            
+        self.setGeometry(geo)
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+
+
+
+
+
+
 在当前设计中，token 的线程安全性以及过期后自动重新验证的问题确实需要进一步优化。以下我会分析当前 token 存储的线程安全性问题，并提供改进方案，同时实现 token 过期后自动触发重新验证的机制。
 1. Token 线程安全性分析
 当前问题
