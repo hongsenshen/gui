@@ -9,6 +9,217 @@ class CustomTitleBar(QWidget):
         self.parent = parent
         self.setFixedHeight(32)
         self.drag_start = None
+        self.setMouseTracking(True)  # 启用持续鼠标追踪
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(5, 0, 5, 0)
+        layout.setSpacing(0)
+
+        self.title = QLabel("Custom Window")
+        self.title.setStyleSheet("padding-left: 5px; font: 14px;")
+        layout.addWidget(self.title)
+        layout.addStretch()
+
+        btn_style = """
+            QPushButton {
+                border: none;
+                background: transparent;
+                min-width: 46px;
+                font: 18px;
+            }
+            QPushButton:hover { background: rgba(0,0,0,15%); }
+        """
+        self.min_btn = QPushButton("?")
+        self.max_btn = QPushButton("?")
+        self.close_btn = QPushButton("?")
+        
+        self.close_btn.setStyleSheet("""
+            QPushButton:hover { 
+                background: #e81123; 
+                color: white;
+            }
+        """)
+
+        for btn in (self.min_btn, self.max_btn, self.close_btn):
+            btn.setStyleSheet(btn_style)
+            btn.setFixedHeight(32)
+
+        self.min_btn.clicked.connect(self.parent.showMinimized)
+        self.max_btn.clicked.connect(self.toggle_maximize)
+        self.close_btn.clicked.connect(self.parent.close)
+
+        layout.addWidget(self.min_btn)
+        layout.addWidget(self.max_btn)
+        layout.addWidget(self.close_btn)
+
+    def toggle_maximize(self):
+        if self.parent.isMaximized():
+            self.parent.showNormal()
+            self.max_btn.setText("?")
+        else:
+            self.parent.showMaximized()
+            self.max_btn.setText("?")
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.drag_start = event.globalPosition().toPoint()
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self.drag_start:
+            delta = event.globalPosition().toPoint() - self.drag_start
+            self.parent.move(self.parent.x() + delta.x(), self.parent.y() + delta.y())
+            self.drag_start = event.globalPosition().toPoint()
+        else:
+            # 关键修改：主动传递鼠标位置信息
+            self.parent.handle_hover_resize(event.position().toPoint())
+            event.ignore()
+
+    def mouseReleaseEvent(self, event):
+        self.drag_start = None
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setMouseTracking(True)  # 必须启用
+        self.resize_edge = None
+        self.drag_pos = None
+        self.min_size = QPoint(200, 150)
+
+        # 主容器（包含1px边框）
+        container = QWidget()
+        self.setCentralWidget(container)
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(1, 1, 1, 1)  # 边框边距
+        layout.setSpacing(0)
+
+        self.title_bar = CustomTitleBar(self)
+        layout.addWidget(self.title_bar)
+
+        content = QWidget()
+        content.setStyleSheet("background: white;")
+        content.setAttribute(Qt.WA_TransparentForMouseEvents)
+        layout.addWidget(content)
+
+        container.setStyleSheet("""
+            QWidget {
+                background: #f0f0f0;
+                border: 1px solid #aaaaaa;
+            }
+        """)
+
+    def get_resize_edge(self, pos):
+        margin = 8  # 检测边距
+        rect = self.rect()
+        
+        left = pos.x() <= margin
+        right = pos.x() >= rect.width() - margin
+        top = pos.y() <= margin
+        bottom = pos.y() >= rect.height() - margin
+
+        if left and top: return 1    # 左上
+        if right and top: return 2   # 右上
+        if left and bottom: return 3 # 左下
+        if right and bottom: return 4 # 右下
+        if left: return 5    # 左
+        if right: return 6   # 右
+        if top: return 7     # 上
+        if bottom: return 8  # 下
+        return 0
+
+    def set_cursor_shape(self, edge):
+        cursor_map = {
+            1: Qt.SizeFDiagCursor, 2: Qt.SizeBDiagCursor,
+            3: Qt.SizeBDiagCursor, 4: Qt.SizeFDiagCursor,
+            5: Qt.SizeHorCursor, 6: Qt.SizeHorCursor,
+            7: Qt.SizeVerCursor, 8: Qt.SizeVerCursor,
+            0: Qt.ArrowCursor
+        }
+        self.setCursor(cursor_map[edge])
+
+    def handle_hover_resize(self, pos):
+        """实时处理悬停状态"""
+        if self.isMaximized():
+            return
+        current_edge = self.get_resize_edge(pos)
+        self.set_cursor_shape(current_edge)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and not self.isMaximized():
+            self.drag_pos = event.globalPosition().toPoint()
+            self.resize_edge = self.get_resize_edge(event.position().toPoint())
+
+    def mouseMoveEvent(self, event):
+        # 实时处理所有鼠标移动事件
+        self.handle_hover_resize(event.position().toPoint())
+
+        if self.drag_pos and self.resize_edge:
+            delta = event.globalPosition().toPoint() - self.drag_pos
+            geo = self.geometry()
+            
+            # 处理左侧相关边界
+            if self.resize_edge in [1,5,3]:
+                new_width = max(self.min_size.x(), geo.width() - delta.x())
+                geo.setLeft(geo.right() - new_width)
+            
+            # 处理右侧相关边界
+            if self.resize_edge in [2,6,4]:
+                new_width = max(self.min_size.x(), geo.width() + delta.x())
+                geo.setWidth(new_width)
+            
+            # 处理顶部相关边界
+            if self.resize_edge in [1,7,2]:
+                new_height = max(self.min_size.y(), geo.height() - delta.y())
+                geo.setTop(geo.bottom() - new_height)
+            
+            # 处理底部相关边界
+            if self.resize_edge in [3,8,4]:
+                new_height = max(self.min_size.y(), geo.height() + delta.y())
+                geo.setHeight(new_height)
+            
+            self.setGeometry(geo)
+            self.drag_pos = event.globalPosition().toPoint()
+
+    def mouseReleaseEvent(self, event):
+        self.drag_pos = None
+        self.resize_edge = None
+        self.setCursor(Qt.ArrowCursor)
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.resize(800, 600)
+    window.show()
+    sys.exit(app.exec())
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import sys
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+from PySide6.QtCore import Qt, QRect, QPoint
+from PySide6.QtGui import QCursor
+
+class CustomTitleBar(QWidget):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.setFixedHeight(32)
+        self.drag_start = None
         self.setMouseTracking(True)  # 必须启用
 
         layout = QHBoxLayout(self)
