@@ -1,3 +1,184 @@
+from playwright.sync_api import sync_playwright
+import os
+import time
+from urllib.parse import urljoin, urlparse, urlunparse
+from bs4 import BeautifulSoup
+
+def normalize_url(base_url, resource_url):
+    """规范化URL，避免重复路径问题"""
+    absolute_url = urljoin(base_url, resource_url)
+    parsed = urlparse(absolute_url)
+    # 清理路径中的重复部分
+    path_segments = parsed.path.split('/')
+    clean_segments = []
+    for seg in path_segments:
+        if seg and seg not in clean_segments:  # 去除空段和重复段
+            clean_segments.append(seg)
+    normalized_path = '/' + '/'.join(clean_segments)
+    return urlunparse((parsed.scheme, parsed.netloc, normalized_path, parsed.params, parsed.query, parsed.fragment))
+
+def download_resource_with_browser(page, url, save_dir, filename):
+    """使用Playwright的浏览器下载资源"""
+    try:
+        response = page.goto(url, wait_until="networkidle", timeout=10000)
+        if response and response.ok:
+            content = response.body()
+            os.makedirs(os.path.dirname(os.path.join(save_dir, filename)), exist_ok=True)
+            with open(os.path.join(save_dir, filename), 'wb') as f:
+                f.write(content)
+            return True
+        else:
+            print(f"Failed to download {url}: Response not OK")
+            return False
+    except Exception as e:
+        print(f"Failed to download resource {url}: {str(e)}")
+        return False
+
+def save_page_like_chrome(page, url, index):
+    """保存页面，模仿Chrome的完整网页保存"""
+    try:
+        html_content = page.content()
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        base_dir = "downloaded_pages"
+        page_name = f"page_{index}_{url.split('/')[-1].replace('?', '_').replace('=', '_')}"
+        html_filename = f"{page_name}.html"
+        resources_dir = f"{page_name}_files"
+        save_dir = os.path.join(base_dir, resources_dir)
+        os.makedirs(save_dir, exist_ok=True)
+
+        resource_tags = [
+            ('img', 'src'),
+            ('script', 'src'),
+            ('link', 'href'),
+            ('source', 'src'),
+        ]
+
+        for tag_name, attr_name in resource_tags:
+            for tag in soup.find_all(tag_name):
+                resource_url = tag.get(attr_name)
+                if resource_url and not resource_url.startswith('data:'):
+                    # 规范化URL，避免simdimg重复
+                    absolute_url = normalize_url(url, resource_url)
+                    parsed_url = urlparse(absolute_url)
+                    path_parts = parsed_url.path.strip('/').split('/')
+                    resource_filename = '_'.join(path_parts[-2:]) if len(path_parts) > 1 else path_parts[-1] or 'resource'
+                    if '.' not in resource_filename:
+                        resource_filename += '.bin'
+                    
+                    if download_resource_with_browser(page, absolute_url, save_dir, resource_filename):
+                        tag[attr_name] = os.path.join(resources_dir, resource_filename)
+                    page.go_back(wait_until="networkidle", timeout=10000)
+
+        with open(os.path.join(base_dir, html_filename), 'w', encoding='utf-8') as f:
+            f.write(str(soup))
+        print(f"Saved: {os.path.join(base_dir, html_filename)} with resources in {resources_dir}")
+
+    except Exception as e:
+        print(f"Error saving page {url}: {str(e)}")
+
+def click_with_retry(page, element, retries=3, delay=1):
+    """带重试机制的点击操作"""
+    for attempt in range(retries):
+        try:
+            element.wait_for_element_state("stable", timeout=5000)
+            element.click(timeout=10000)
+            return True
+        except Exception as e:
+            print(f"Click attempt {attempt + 1} failed: {str(e)}")
+            if attempt < retries - 1:
+                time.sleep(delay)
+                continue
+            return False
+
+def get_clickable_elements(page):
+    """重新获取表格中的可点击元素"""
+    try:
+        page.wait_for_selector("table", timeout=10000)
+        elements = page.query_selector_all("table a[href]")
+        return elements
+    except Exception as e:
+        print(f"Error getting clickable elements: {str(e)}")
+        return []
+
+def main():
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False)
+        context = browser.new_context()
+        page = context.new_page()
+        
+        # 修改为新的目标URL
+        target_url = "http://www.officedaytime.com/simd512e"
+        try:
+            page.goto(target_url, wait_until="networkidle")
+            print(f"Successfully loaded: {target_url}")
+        except Exception as e:
+            print(f"Failed to load page: {str(e)}")
+            browser.close()
+            return
+
+        if not get_clickable_elements(page):
+            print("No clickable elements found in table initially")
+            browser.close()
+            return
+
+        initial_elements = get_clickable_elements(page)
+        links_to_visit = []
+        for element in initial_elements:
+            try:
+                href = element.get_attribute("href")
+                if href:
+                    if href.startswith('/'):
+                        full_url = target_url.rstrip('/') + href
+                    elif href.startswith('http'):
+                        full_url = href
+                    else:
+                        full_url = target_url.rstrip('/') + '/' + href
+                    links_to_visit.append(full_url)
+            except Exception as e:
+                print(f"Error getting href: {str(e)}")
+
+        print(f"Found {len(links_to_visit)} clickable links in table")
+
+        for index, url in enumerate(links_to_visit):
+            try:
+                clickable_elements = get_clickable_elements(page)
+                if not clickable_elements:
+                    print("No clickable elements available after navigation")
+                    break
+
+                element_to_click = None
+                for element in clickable_elements:
+                    href = element.get_attribute("href")
+                    full_href = urljoin(target_url, href)
+                    if full_href == url:
+                        element_to_click = element
+                        break
+
+                if element_to_click and click_with_retry(page, element_to_click):
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                    current_url = page.url
+                    print(f"Jumped to: {current_url}")
+                    save_page_like_chrome(page, current_url, index)
+                    page.go_back(wait_until="networkidle", timeout=15000)
+                    time.sleep(1)
+                else:
+                    print(f"Failed to click element for {url} after retries")
+            except Exception as e:
+                print(f"Error processing link {url}: {str(e)}")
+                continue
+
+        browser.close()
+        print("Done!")
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
 import sys
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
 from PySide6.QtCore import Qt, QRect, QPoint
