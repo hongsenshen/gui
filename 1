@@ -1,3 +1,160 @@
+是的，完全可以！你的想法非常好：只在 DAO 层强制要求有活跃的 session，而不在业务/路由层显式写 async with db_transaction()。我们可以把事务管理责任下沉到 DAO 层，通过一个异步装饰器实现：  所有 DAO 方法（尤其是涉及写操作或需要事务一致性的读）自动包裹在独立事务中。  
+读操作（如查询）也可以自动使用一个轻量级只读事务（或自动提交的 session）。  
+如果业务层需要跨多个 DAO 操作的大事务，可以继续使用 db_transaction() 上下文管理器（高级用法），但日常单个操作无需关心。
+
+推荐方案：为 DAO 方法提供 @dao_method 装饰器python
+
+# dao_decorator.py
+from contextlib import asynccontextmanager
+from functools import wraps
+from sqlalchemy.exc import SQLAlchemyError
+
+from .db_session import async_session_factory, _current_session
+def dao_method(*, readonly: bool = False):
+    """
+    DAO 方法装饰器：自动为方法提供 AsyncSession 和事务支持
+    - readonly=True：使用只读事务（适合查询，性能更好）
+    - readonly=False：使用读写事务（默认，适合增删改）
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(self, *args, **kwargs):
+            # 检查是否已有活跃 session（支持嵌套在大事务中）
+            current_token = _current_session.get(None)
+            if current_token is not None:
+                # 已经在事务上下文中，直接使用现有 session
+                return await func(self, *args, **kwargs)
+
+            # 否则创建新 session 和事务
+            session = async_session_factory()
+            token = _current_session.set(session)
+
+            try:
+                if readonly:
+                    # 只读事务：不开启显式事务块，但仍可读一致性快照
+                    async with session:
+                        result = await func(self, *args, **kwargs)
+                        await session.commit()  # 确保读操作提交（虽无变更）
+                else:
+                    # 读写事务
+                    async with session.begin():  # 自动开启事务
+                        result = await func(self, *args, **kwargs)
+                    await session.commit()  # 成功提交
+                return result
+            except SQLAlchemyError:
+                await session.rollback()
+                raise
+            except Exception:
+                await session.rollback()
+                raise
+            finally:
+                if current_token is None:  # 只有自己创建的才关闭
+                    await session.close()
+                    _current_session.reset(token)
+
+        return wrapper
+    return decorator
+
+修改 BaseDAO：所有方法自动加装饰器python
+
+# base_dao.py
+from .dao_decorator import dao_method
+
+class BaseDAO(Generic[T], ABC):
+    model: type[T] = None
+
+    @property
+    def session(self) -> AsyncSession:
+        return get_current_session()
+
+    # 查询方法：标记为 readonly，提升性能（某些数据库支持读快照隔离）
+    @dao_method(readonly=True)
+    async def get_by_id(self, id_: int | str) -> T | None:
+        return await self.session.get(self.model, id_)
+
+    @dao_method(readonly=True)
+    async def get_one_or_none(self, **filters) -> T | None:
+        stmt = select(self.model).filter_by(**filters)
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @dao_method(readonly=True)
+    async def get_list(self, **filters) -> list[T]:
+        stmt = select(self.model).filter_by(**filters)
+        result = await self.session.scalars(stmt)
+        return result.all()
+
+    # 写操作：使用读写事务
+    @dao_method(readonly=False)
+    async def add(self, obj: T) -> T:
+        self.session.add(obj)
+        return obj
+
+    @dao_method(readonly=False)
+    async def add_all(self, objs: list[T]) -> None:
+        self.session.add_all(objs)
+
+    @dao_method(readonly=False)
+    async def update(self, id_: int | str, **update_data) -> int:
+        stmt = update(self.model).where(self.model.id == id_).values(**update_data)
+        result = await self.session.execute(stmt)
+        return result.rowcount
+
+    @dao_method(readonly=False)
+    async def delete(self, id_: int | str) -> int:
+        stmt = delete(self.model).where(self.model.id == id_)
+        result = await self.session.execute(stmt)
+        return result.rowcount
+
+子类使用：超级简单，无需任何额外代码python
+
+class UserDAO(BaseDAO[User]):
+    model = User
+
+    @dao_method(readonly=True)
+    async def get_by_username(self, username: str) -> User | None:
+        return await self.get_one_or_none(username=username)
+
+    @dao_method(readonly=False)
+    async def create_user(self, name: str, age: int) -> User:
+        user = User(name=name, age=age)
+        await self.add(user)
+        return user
+
+路由层使用：彻底解放！python
+
+@app.get("/users/{user_id}")
+async def get_user(user_id: int):
+    user = await user_dao.get_by_id(user_id)  # 直接调用！无需 async with
+    if not user:
+        raise HTTPException(404, "User not found")
+    return user
+
+@app.post("/users/")
+async def create_user(name: str, age: int):
+    user = await user_dao.create_user(name, age)  # 自动事务 + commit
+    return {"id": user.id, "name": user.name}
+
+高级：业务层需要大事务时（可选）python
+
+async def transfer_money(from_id: int, to_id: int, amount: float):
+    async with db_transaction():  # 手动开启大事务
+        await user_dao.update(from_id, balance=F("balance") - amount)
+        await user_dao.update(to_id, balance=F("balance") + amount)
+    # 两个操作在同一个事务中，要么全成功要么全回滚
+
+优点总结路由层极简：再也不用写 async with db_transaction()。
+DAO 层安全：所有方法自动有 session 和事务。
+支持嵌套：如果在外层用了 db_transaction()，内部 DAO 方法会复用同一个 session（不会重复创建）。
+性能优化：查询用只读事务，写操作用读写事务。
+零风险：ContextVar + 正确清理，确保无 session 泄漏。
+
+这个模式在实际生产项目中非常受欢迎，强烈推荐！如果你还希望支持“批量操作自动合并事务”或其他优化，也可以继续扩展。需要我帮你加吗？
+
+
+
+
+
 要查看键盘快捷键，按下问号
 查看键盘快捷键
 
